@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(yfv2)
+project(yolov5)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,21 +12,14 @@ find_package(ncnn REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OpenCV REQUIRED opencv4)
 include_directories(${OpenCV_INCLUDE_DIRS})
-# include_directories(/usr/include/tesseract)
 
 # Threads
 find_package(Threads REQUIRED)
 
-# --- TensorFlow Lite 직접 include 및 static lib 지정 ---
-
-# include 및 링크 설정
-include_directories(${TFLITE_INCLUDE_DIR})
-include_directories(src/include)
-
-add_executable(yfv2 demo.cpp src/yolo-fastestv2.cpp)
+add_executable(yolov5 yolo.cpp main.cpp)
 
 # 라이브러리 링크
-target_link_libraries(yfv2
+target_link_libraries(yolov5
     PRIVATE
     ${OpenCV_LIBRARIES}  # OpenCV 라이브러리
     ncnn                # ncnn 라이브러리

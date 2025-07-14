@@ -60,8 +60,8 @@ void reader_thread()
             if (img_queue.size() >= 2) img_queue.pop();   //  delete old queue frame if size exceeds 2
             img_queue.push(copy);                         //  insert new frame into queue
         }
-        cvn.notify_one();                                 // wake up inference thread
-        std::this_thread::sleep_for(std::chrono::milliseconds(5)); //  5ms sleep
+        // cvn.notify_one();                                 // wake up inference thread
+        // std::this_thread::sleep_for(std::chrono::milliseconds(5)); //  5ms sleep
     }
 
     munmap(ptr, WIDTH * HEIGHT * CH);    // unmapoing shared memory
@@ -93,7 +93,7 @@ void inference_thread()
         std::vector<Object> objects;  
         {
             std::unique_lock<std::mutex> lock(mtx);
-            cvn.wait(lock, []{ return !img_queue.empty(); });   // 데이터 올 때까지 대기
+            // cvn.wait(lock, []{ return !img_queue.empty(); });   // 데이터 올 때까지 대기
             frame = img_queue.front();                        
             img_queue.pop();                                    // 큐에서 제거
         }
