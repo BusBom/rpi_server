@@ -52,15 +52,15 @@ void signal_handler(int signum) {
     if (!running.exchange(false)) { 
         return;
     }
-    std::cout << "\n[신호 감지] 종료 절차를 시작합니다..." << std::endl;
+    std::cout << "\n[Signal Detected] Initiating shutdown procedure..." << std::endl;
 
-    std::cout << "[저장] 현재 설정을 " << CONFIG_FILE << "에 저장합니다." << std::endl;
+    std::cout << "[SAVE] Saving current settings to " << CONFIG_FILE << std::endl;
     std::ofstream config_file(CONFIG_FILE);
     if(config_file.is_open()){
         std::unique_lock<std::mutex> lk(mtx);
         config_file << global_camera_json.dump(4);
     } else {
-        std::cerr << "[오류] 설정 파일 저장에 실패했습니다." << std::endl;
+        std::cerr << "[ERROR] Failed to save settings file." << std::endl;
     }
 
     running.store(false);
@@ -98,19 +98,28 @@ void apply_settings(cv::VideoCapture& cap, const nlohmann::json& settings, int& 
 void capture_thread() {
     cv::VideoCapture cap(0, cv::CAP_V4L2);
     if (!cap.isOpened()) {
-        std::cerr << "치명적 오류: 카메라를 열 수 없습니다." << std::endl;
+        std::cerr << "FATAL ERROR: Cannot open camera." << std::endl;
         running.store(false);
         cv_writer.notify_all();
         cv_response.notify_all();
         return;
     }
-    std::cout << "[캡처] 카메라 장치 열기 성공." << std::endl;
+    std::cout << "[CAPTURE] Camera device opened successfully." << std::endl;
 
     cap.set(cv::CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
     cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
-    std::cout << "[캡처] 카메라 초기 설정 완료." << std::endl;
+    std::cout << "[CAPTURE] Initial camera setup complete." << std::endl;
+
+    std::cout << "[CAPTURE] Stabilizing camera..." << std::endl;
+    for (int i = 0; i < 5; ++i) {
+        cv::Mat dummy_frame;
+        if (!cap.read(dummy_frame)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    }
+    std::cout << "[CAPTURE] Stabilization complete. Starting main loop." << std::endl;
 
     int current_b = -1, current_c = -1, current_e = -1, current_s = -1;
 
@@ -134,19 +143,22 @@ void capture_thread() {
                 cv_response.notify_one(); // 소켓 스레드에 "Before" 스냅샷 준비 완료 알림
 
                 // [After] 요청받은 새 설정을 메인 스트림에 적용
-                std::cout << "[캡처] 새 설정 적용..." << std::endl;
+                std::cout << "[CAPTURE] Applying new settings..." << std::endl;
                 global_camera_json.merge_patch(*request_json);
                 request_json.reset();
 
                 // 안정화 작업
                 lk.unlock();
-                std::cout << "[캡처] 새 설정 적용 후 안정화 작업..." << std::endl;
+                std::cout << "[CAPTURE] Stabilizing after applying new settings..." << std::endl;
                 cap.grab();
                 cap.grab();
-                std::cout << "[캡처] 안정화 작업 완료" << std::endl;
+                std::cout << "[CAPTURE] Stabilization complete." << std::endl;
                 
             } else {
-                imwrite("result.jpg", current_frame);
+                // debug
+                cv::imshow("Preview", current_frame);
+                cv::waitKey(1);
+                //imwrite("result.jpg", current_frame);
                 // 메인 스트림 프레임을 writer 스레드에 전달
                 if (frame_queue.size() >= 2) frame_queue.pop_front();
                 frame_queue.push_back(current_frame.clone());
@@ -157,7 +169,7 @@ void capture_thread() {
     }
 
     cap.release();
-    std::cout << "[캡처] 캡처 스레드 종료 및 카메라 자원 해제." << std::endl;
+    std::cout << "[CAPTURE] Capture thread finished and camera resource released." << std::endl;
 }
 
 /**
@@ -199,7 +211,7 @@ void socket_thread() {
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) { perror("bind"); close(server_fd); running.store(false); cv_writer.notify_all(); return; }
     if (listen(server_fd, 5) == -1) { perror("listen"); close(server_fd); running.store(false); cv_writer.notify_all(); return; }
 
-    std::cout << "[소켓] " << SOCKET_PATH << " 에서 클라이언트 연결 대기 중..." << std::endl;
+    std::cout << "[SOCKET] Waiting for client connection on " << SOCKET_PATH << std::endl;
 
     while (running.load()) {
         int client_fd = accept(server_fd, NULL, NULL);
@@ -209,7 +221,7 @@ void socket_thread() {
         if (read(client_fd, buffer, sizeof(buffer) - 1) > 0) {
             try {
                 nlohmann::json req = nlohmann::json::parse(buffer);
-                std::cout << "[소켓] 설정 변경 요청 수신" << std::endl;
+                std::cout << "[SOCKET] Settings change request received." << std::endl;
                 {
                     std::unique_lock<std::mutex> lk(mtx);
                     request_json = req;
@@ -222,7 +234,7 @@ void socket_thread() {
                     if (cv_response.wait_for(lk, std::chrono::seconds(2), []{ return before_frame_response.has_value(); })) {
                         before_frame = *before_frame_response;
                     } else {
-                        std::cerr << "[소켓] 경고: 'Before' 프레임 응답 시간 초과!" << std::endl;
+                        std::cerr << "[SOCKET] WARNING: 'Before' frame response timeout!" << std::endl;
                     }
                 }
 
@@ -234,20 +246,15 @@ void socket_thread() {
                         ssize_t w1 = write(client_fd, &type, sizeof(type));
                         ssize_t w2 = write(client_fd, &size, sizeof(size));
                         ssize_t w3 = write(client_fd, jpeg_buffer.data(), jpeg_buffer.size());
-                        
-                        if(w1 <= 0 || w2 <= 0 || w3 <= 0) {
-                            std::cerr << "[소켓] 클라이언트로 전송 실패 (EPIPE 가능성 있음)" << std::endl;
-                        } else {
-                            std::cout << "[소켓] 'Before' 스냅샷 전송 완료." << std::endl;
-                        }
+                        std::cout << "[SOCKET] 'Before' snapshot sent successfully." << std::endl;
                     }
                 }
-            } catch (const std::exception& e) { std::cerr << "[소켓] 예외 발생: " << e.what() << std::endl; }
+            } catch (const std::exception& e) { std::cerr << "[SOCKET] Exception occurred: " << e.what() << std::endl; }
         }
         close(client_fd);
     }
     unlink(SOCKET_PATH);
-    std::cout << "[소켓] 소켓 스레드 종료." << std::endl;
+    std::cout << "[SOCKET] Socket thread finished." << std::endl;
 }
 
 int main() {
@@ -266,14 +273,14 @@ int main() {
         if (config_file.is_open()) {
             try {
                 global_camera_json = nlohmann::json::parse(config_file);
-                std::cout << "[로드] " << CONFIG_FILE << "에서 설정을 불러왔습니다." << std::endl;
+                std::cout << "[LOAD] Loaded settings from " << CONFIG_FILE << std::endl;
             } catch (const std::exception& e) {
-                std::cerr << "[오류] 설정 파일 파싱 실패, 하드웨어 기본값으로 재설정합니다: " << e.what() << std::endl;
+                std::cerr << "[ERROR] Failed to parse config file, resetting to hardware defaults: " << e.what() << std::endl;
                 goto read_hardware_defaults; // 파싱 실패 시 하드웨어 기본값 읽기로 이동
             }
         } else {
 read_hardware_defaults:
-            std::cout << "[초기화] 설정 파일 없음. 카메라 하드웨어의 기본값을 읽습니다." << std::endl;
+            std::cout << "[INIT] Config file not found. Reading hardware default values." << std::endl;
             cv::VideoCapture temp_cap(0, cv::CAP_V4L2);
             if (temp_cap.isOpened()) {
                 // 실제 하드웨어에서 현재 설정값들을 읽어옴
@@ -283,12 +290,11 @@ read_hardware_defaults:
                 global_camera_json["camera"]["saturation"] = temp_cap.get(cv::CAP_PROP_SATURATION);
                 temp_cap.release();
                 
-                std::cout << "[생성] 읽어온 하드웨어 기본값으로 " << CONFIG_FILE << "을 생성합니다." << std::endl;
                 std::cout << global_camera_json.dump(4) << std::endl;
                 std::ofstream new_config_file(CONFIG_FILE);
                 new_config_file << global_camera_json.dump(4);
             } else {
-                std::cerr << "[오류] 하드웨어 기본값 읽기 실패. 코드에 명시된 안전 기본값을 사용합니다." << std::endl;
+                std::cerr << "[ERROR] Failed to read hardware defaults. Using safe defaults from code." << std::endl;
                 global_camera_json = {{"camera", {{"brightness", 50}, {"contrast", 10}, {"exposure", 0}, {"saturation", 10}}}};
             }
         }
@@ -327,7 +333,7 @@ read_hardware_defaults:
                            cv::Size(FRAME_WIDTH, FRAME_HEIGHT));
 
     if (!writer.isOpened()) {
-        std::cerr << "VideoWriter 초기화 실패" << std::endl;
+        std::cerr << "Failed to initialize VideoWriter" << std::endl;
         return -1;
     }
 
@@ -335,8 +341,8 @@ read_hardware_defaults:
     std::thread t_write(writer_thread, &writer);        // Shared Memory 쓰기 스레드 시작
     std::thread t_sock(socket_thread);                  // Socket 통신 시작
 
-    std::cout << "프레임 캡처 및 공유 메모리 쓰기 스레드 시작" << std::endl;
-    std::cout << "Ctrl+C 키를 누르면 종료합니다." << std::endl;
+    std::cout << "Starting frame capture, shared memory writer, and socket threads." << std::endl;
+    std::cout << ">>>>>  Press Ctrl+C to exit  <<<<<" << std::endl;
 
     t_cap.join();       // 캡처 스레드 종료 대기
     t_write.join();     // 쓰기 스레드 종료 대기

@@ -1,101 +1,128 @@
-#include "json.hpp"
+#include "json.hpp"     // nlohmann/json
 
 #include <fcgi_stdio.h>
 #include <iostream>
-#include <stdio.h>
 #include <string>
-#include <sys/mman>                 // POSIX shared memory
-#include <sys/stat>                 // For mode constants
-#include <fcntl>                    // For O_CREAT, O_RDWR
-#include <unistd>                   // For ftruncate, close, munmap
-#include <string.h>                   // For strncpy
+#include <vector>
+#include <stdexcept>
 
-using ordered_json = nlohmann::ordered_json;
+// ----- System Programming Header -----
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <arpa/inet.h>  // for ntohl
+#include <cstring>      // for strncpy, memset
 
-// Shared memory constants
-const char* SHM_NAME = "/camera_config";
-const size_t SHM_SIZE = 4096; // 4KB
+using json = nlohmann::json;
+
+// ----- Socket Setting -----
+const char* SOCKET_PATH = "/tmp/camera_socket";
+
+/**
+ * @brief 서버에 요청을 보내고 '변경 전' 이미지 데이터를 받아오는 함수
+ * @param payload 서버로 보낼 JSON 문자열
+ * @return 서버로부터 받은 JPEG 데이터 벡터. 실패 시 비어있는 벡터 반환.
+ */
+std::vector<char> request_to_server(const std::string& payload) {
+    int sock_fd = 0;
+    struct sockaddr_un serv_addr;
+    
+    // 1. 소켓 생성
+    if ((sock_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        return {}; // 실패 시 빈 벡터 반환
+    }
+
+    std::memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sun_family = AF_UNIX;
+    strncpy(serv_addr.sun_path, SOCKET_PATH, sizeof(serv_addr.sun_path) - 1);
+
+    // 2. 서버에 연결
+    if (connect(sock_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        close(sock_fd);
+        return {};
+    }
+
+    // 3. JSON 데이터 전송
+    ssize_t bytes_sent = send(sock_fd, payload.c_str(), payload.length(), 0);
+    if (bytes_sent != (ssize_t)payload.length()) {
+        close(sock_fd);
+        return {};
+    }
+
+    // 4. 서버로부터 응답 수신
+    // 헤더: 이미지 타입(1바이트) + 이미지 크기(4바이트)
+    char header[5] = {0};
+    ssize_t bytes_read = read(sock_fd, header, 5);
+    if (bytes_read != 5) {
+        close(sock_fd);
+        return {};
+    }
+
+    // uint8_t img_type = header[0]; // 타입은 1(JPEG)로 고정
+    uint32_t img_size;
+    memcpy(&img_size, &header[1], 4);
+    img_size = ntohl(img_size); // 네트워크 바이트 순서 -> 호스트 바이트 순서
+
+    if (img_size == 0 || img_size > 10 * 1024 * 1024) { // 10MB 이상은 비정상으로 간주
+        close(sock_fd);
+        return {};
+    }
+
+    // 5. 실제 이미지 데이터 수신
+    std::vector<char> img_buffer(img_size);
+    ssize_t total_received = 0;
+    while (total_received < img_size) {
+        ssize_t result = read(sock_fd, img_buffer.data() + total_received, img_size - total_received);
+        if (result <= 0) {
+            close(sock_fd);
+            return {}; // 읽기 실패 또는 연결 종료
+        }
+        total_received += result;
+    }
+    
+    close(sock_fd);
+    return img_buffer;
+}
 
 int main() {
     while (FCGI_Accept() >= 0) {
-        printf("Content-Type: application/json\r\n\r\n");
-
+        // POST 데이터 길이 확인
         char* content_length_str = getenv("CONTENT_LENGTH");
         int content_length = content_length_str ? atoi(content_length_str) : 0;
+        
+        std::vector<char> image_jpeg;
 
         if (content_length > 0) {
-            char* post_data = new char[content_length + 1];
-            FCGI_fread(post_data, 1, content_length, FCGI_stdin);
-            post_data[content_length] = '\0';
+            // POST 데이터 읽기
+            std::string post_data(content_length, '\0');
+            FCGI_fread(&post_data[0], 1, content_length, FCGI_stdin);
 
             try {
-                ordered_json j = json::parse(post_data);
+                // JSON 유효성 검사. j는 컴파일 오류 회피용으로 사용 안 함.
+                json j = json::parse(post_data);
 
-                int brightness = 0, contrast = 0, exposure = 0, saturation = 0;
-                bool enabled = true;
-                std::string startTime = "01:00", endTime = "05:00";
-
-                // 중첩 객체 접근 (profile)
-                if (j.contains("camera")) {
-                    json camera = j["camera"];
-                    brightness = camera.value("brightness", 0);
-                    contrast = camera.value("contrast", 0);
-                    exposure = camera.value("exposure", 0);
-                    saturation = camera.value("saturation", 0);
-                }
-                    
-                if (j.contains("sleepMode")) {
-                    json sleepMode = j["sleepMode"];
-                    startTime = sleepMode.value("startTime", "01:00");
-                    endTime = sleepMode.value("endTime", "05:00");
-                }
-
-                // Write to shared memory
-                int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
-                if (shm_fd == -1) {
-                    throw std::runtime_error("Failed to open shared memory");
-                }
-                if (ftruncate(shm_fd, SHM_SIZE) == -1) {
-                    close(shm_fd);
-                    throw std::runtime_error("Failed to set shared memory size");
-                }
-                char* shm_ptr = (char*)mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-                if (shm_ptr == MAP_FAILED) {
-                    close(shm_fd);
-                    throw std::runtime_error("Failed to map shared memory");
-                }
-
-                std::string json_str = j.dump();
-                strncpy(shm_ptr, json_str.c_str(), SHM_SIZE - 1);
-                shm_ptr[SHM_SIZE - 1] = '\0'; // Ensure null termination
-
-                munmap(shm_ptr, SHM_SIZE);
-                close(shm_fd);
-
-                ordered_json response = {
-                    {"camera", {
-                        {"brightness", brightness},
-                        {"contrast", contrast},
-                        {"exposure", exposure},
-                        {"saturation", saturation}
-                    }},
-                    {"sleepMode", {
-                        {"startTime", startTime},
-                        {"endTime", endTime}
-                    }}
-                };
-                std::cout << response.dump(4) << std::endl;
+                // 서버로부터 before img 받기
+                image_jpeg = request_to_server(post_data);
                 
             } catch (std::exception& e) {
-                json err = {
-                    {"result", "error"},
-                    {"msg", e.what()}
-                };
-                printf("%s\n", err.dump().c_str());
+                fprintf(stderr, "JSON 파싱 오류: %s\n", e.what());
             }
-            delete[] post_data;
+        }
+        if (!image_jpeg.empty()) {
+            // 성공 시: JPEG 이미지 출력
+            printf("Content-Type: image/jpeg\r\n");
+            printf("Content-Length: %zu\r\n\r\n", image_jpeg.size());
+            fflush(stdout);                                                     // 헤더 flush
+            FCGI_fwrite(image_jpeg.data(), 1, image_jpeg.size(), FCGI_stdout);  //이미지 데이터 전송
+            fflush(FCGI_stdout);                                                // 이미지 flush
         } else {
-            printf("{\"result\":\"no_data\"}\n");
+            // 실패 시: 오류 메시지 JSON 출력
+            printf("Content-Type: application/json\r\n\r\n");
+            json err = {
+                {"result", "error"},
+                {"msg", "Failed to get image from the camera server."}
+            };
+            printf("%s\n", err.dump().c_str());
         }
     }
     return 0;

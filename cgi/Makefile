@@ -1,5 +1,5 @@
 
-TARGET = sequence
+TARGET = config
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
