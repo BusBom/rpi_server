@@ -10,11 +10,20 @@
 #include <unistd>                   // For ftruncate, close, munmap
 #include <string.h>                   // For strncpy
 
+// UDS 통신용
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <cstring>
+
 using ordered_json = nlohmann::ordered_json;
 
-// Shared memory constants
-const char* SHM_NAME = "/camera_config";
-const size_t SHM_SIZE = 4096; // 4KB
+// 임시 UDS 함수 (주소 및 메시지 구조는 추후 논의)
+void sendToUDS(const std::string& json_str) {
+    // 구조만 잡아둠, 실제 동작은 추후 구현 예정
+    // ex: send json_str via socket(AF_UNIX, SOCK_STREAM, 0)
+}
+
 
 int main() {
     while (FCGI_Accept() >= 0) {
@@ -50,27 +59,9 @@ int main() {
                     endTime = sleepMode.value("endTime", "05:00");
                 }
 
-                // Write to shared memory
-                int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
-                if (shm_fd == -1) {
-                    throw std::runtime_error("Failed to open shared memory");
-                }
-                if (ftruncate(shm_fd, SHM_SIZE) == -1) {
-                    close(shm_fd);
-                    throw std::runtime_error("Failed to set shared memory size");
-                }
-                char* shm_ptr = (char*)mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-                if (shm_ptr == MAP_FAILED) {
-                    close(shm_fd);
-                    throw std::runtime_error("Failed to map shared memory");
-                }
-
+                // 공유 메모리 → UDS 전송으로 변경
                 std::string json_str = j.dump();
-                strncpy(shm_ptr, json_str.c_str(), SHM_SIZE - 1);
-                shm_ptr[SHM_SIZE - 1] = '\0'; // Ensure null termination
-
-                munmap(shm_ptr, SHM_SIZE);
-                close(shm_fd);
+                sendToUDS(json_str);  // 실제 통신 구현은 추후
 
                 ordered_json response = {
                     {"camera", {
