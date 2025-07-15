@@ -1,0 +1,7 @@
+build/
+*.o
+*.exe
+*.log
+*.user
+*.pro.user
+*.avi
