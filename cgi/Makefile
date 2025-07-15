@@ -1,5 +1,5 @@
 
-TARGET = sequence
+TARGET = stream_test
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
