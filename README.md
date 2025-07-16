@@ -3,6 +3,7 @@
 ### Structure
 - cgi
 - camera_stream
+- rtsp_stream
 - lp_detect
 
 ### Requirements
@@ -10,6 +11,8 @@
 - ncnn
 - tensorflow-lite
 - opencv4
+- mediamtx (a.k.a rtsp-simple-server)
+- ffmpeg
 - libfcgi-dev (FastCGI)
 - nginx
 - cmake
