@@ -113,7 +113,7 @@ void capture_thread() {
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
     cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
-    //cap.set(cv::CAP_PROP_FPS, 15);          // 프레임 제한
+    cap.set(cv::CAP_PROP_FPS, 15);          // 프레임 제한
     std::cout << "[CAPTURE] Initial camera setup complete." << std::endl;
 
     // 초기 안정화
