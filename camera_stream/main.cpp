@@ -11,6 +11,7 @@
 #include <cstdlib>                 // setenv
 #include <fstream>
 
+
 #include <fcntl.h>                 // shm_open
 #include <sys/mman.h>              // mmap
 #include <unistd.h>                // ftruncate, close
@@ -28,6 +29,7 @@
 #define FRAME_CHANNELS 3
 #define FRAME_SIZE (FRAME_WIDTH * FRAME_HEIGHT * FRAME_CHANNELS)
 #define SOCKET_PATH "/tmp/camera_socket"
+
 
 // ----- 전역 변수 및 동기화 객체 -----
 std::mutex mtx;
@@ -142,6 +144,7 @@ void capture_thread() {
             continue;
         }
         
+
         // 소켓으로부터 변경 사항이 있는 지 확인
         {
             std::unique_lock<std::mutex> lk(mtx);
@@ -155,6 +158,7 @@ void capture_thread() {
                 std::cout << "[CAPTURE] Applying new settings..." << std::endl;
                 global_camera_json.merge_patch(*request_json);
                 request_json.reset();
+
             }
 
             cv::imshow("Preview", current_frame);
@@ -215,6 +219,7 @@ void socket_thread() {
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd == -1) break;
 
+
         char buffer[1024] = {0};
         if (read(client_fd, buffer, sizeof(buffer) - 1) > 0) {
             try {
@@ -244,6 +249,7 @@ void socket_thread() {
                         write(client_fd, &type, sizeof(type));
                         write(client_fd, &size, sizeof(size));
                         write(client_fd, jpeg_buffer.data(), jpeg_buffer.size());
+
                         std::cout << "[SOCKET] 'Before' snapshot sent successfully." << std::endl;
                     }
                 }
@@ -255,9 +261,11 @@ void socket_thread() {
     std::cout << "[SOCKET] Socket thread finished." << std::endl;
 }
 
+
 /**
  * @brief 프로그램 시작 시 설정을 불러오거나 하드웨어 기본값을 읽는 메인 함수
  */
+
 int main() {
     // SIGINT(Ctrl+C) 핸들러 등록
     signal(SIGINT, signal_handler);
@@ -287,6 +295,7 @@ read_hardware_defaults:
                 temp_cap.release();
                 
                 std::cout << "[CREATE] Creating " << CONFIG_FILE << " with read hardware default values." << std::endl;
+
                 std::cout << global_camera_json.dump(4) << std::endl;
                 std::ofstream new_config_file(CONFIG_FILE);
                 new_config_file << global_camera_json.dump(4);
