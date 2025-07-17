@@ -10,6 +10,8 @@
 #include <atomic>                  // std::atomic
 #include <cstdlib>                 // setenv
 #include <fstream>
+
+
 #include <fcntl.h>                 // shm_open
 #include <sys/mman.h>              // mmap
 #include <unistd.h>                // ftruncate, close
@@ -17,7 +19,6 @@
 #include <sys/socket.h>            // socket API
 #include <sys/un.h>                // sockaddr_un
 #include <arpa/inet.h>             // htonl
-
 #include <signal.h>
 
 // ----- Shared Memory 및 Socket 설정 -----
@@ -28,6 +29,7 @@
 #define FRAME_CHANNELS 3
 #define FRAME_SIZE (FRAME_WIDTH * FRAME_HEIGHT * FRAME_CHANNELS)
 #define SOCKET_PATH "/tmp/camera_socket"
+
 
 // ----- 전역 변수 및 동기화 객체 -----
 std::mutex mtx;
@@ -46,26 +48,24 @@ void* shm_ptr = nullptr;
 
 /**
  * @brief SIGINT (Ctrl+C) 시그널을 처리하여 프로그램을 안전하게 종료합니다.
- * @param signum 시그널 번호
  */
 void signal_handler(int signum) {
-    if (!running.exchange(false)) { 
-        return;
+    if (!running.exchange(false)) return;
+    std::cout << "\n[Signal Detected] Shutting down..." << std::endl;
+    
+    {
+        std::ofstream config(CONFIG_FILE);
+        if (config.is_open()) {
+            std::unique_lock<std::mutex> lk(mtx);
+            config << global_camera_json.dump(4);
+        } else {
+            std::cerr << "[ERROR] Cannot save config." << std::endl;
+        }
     }
-    std::cout << "\n[Signal Detected] Initiating shutdown procedure..." << std::endl;
 
-    std::cout << "[SAVE] Saving current settings to " << CONFIG_FILE << std::endl;
-    std::ofstream config_file(CONFIG_FILE);
-    if(config_file.is_open()){
-        std::unique_lock<std::mutex> lk(mtx);
-        config_file << global_camera_json.dump(4);
-    } else {
-        std::cerr << "[ERROR] Failed to save settings file." << std::endl;
-    }
-
-    running.store(false);
     cv_response.notify_all();
     cv_writer.notify_all();
+
     if (server_fd != -1) {
         shutdown(server_fd, SHUT_RDWR);
         close(server_fd);
@@ -80,20 +80,23 @@ void signal_handler(int signum) {
  * @param c last_contrast 마지막 대비 값 (참조)
  * @param e last_exposure 마지막 노출 값 (참조)
  * @param s last_saturation 마지막 채도 값 (참조)
+ * @return 설정값이 실제로 변경되었으면 true, 아니면 false
  */
-void apply_settings(cv::VideoCapture& cap, const nlohmann::json& settings, int& b, int& c, int& e, int& s) {
+bool apply_settings(cv::VideoCapture& cap, const nlohmann::json& settings, int& b, int& c, int& e, int& s) {
+    bool changed = false;
     if (settings.contains("camera")) {
         const auto& cam_s = settings["camera"];
-        int br = cam_s.value("brightness", b); if(br != b) { cap.set(cv::CAP_PROP_BRIGHTNESS, br); b = br; }
-        int ct = cam_s.value("contrast", c); if(ct != c) { cap.set(cv::CAP_PROP_CONTRAST, ct); c = ct; }
-        int ex = cam_s.value("exposure", e); if(ex != e) { cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25); cap.set(cv::CAP_PROP_EXPOSURE, ex); e = ex; }
-        int st = cam_s.value("saturation", s); if(st != s) { cap.set(cv::CAP_PROP_SATURATION, st); s = st; }
+        int br = cam_s.value("brightness", b); if(br != b) { cap.set(cv::CAP_PROP_BRIGHTNESS, br); b = br; changed = true; }
+        int ct = cam_s.value("contrast", c); if(ct != c) { cap.set(cv::CAP_PROP_CONTRAST, ct); c = ct; changed = true; }
+        int ex = cam_s.value("exposure", e); if(ex != e) { cap.set(cv::CAP_PROP_AUTO_EXPOSURE, 0.25); cap.set(cv::CAP_PROP_EXPOSURE, ex); e = ex; changed = true; }
+        int st = cam_s.value("saturation", s); if(st != s) { cap.set(cv::CAP_PROP_SATURATION, st); s = st; changed = true; }
     }
+    return changed;
 }
 
 /**
  * @brief 카메라에서 프레임을 지속적으로 캡처하여 큐에 추가하는 스레드 함수.
- * 전역 camera_json 객체를 참조하여 카메라 하드웨어 설정을 동적으로 변경합니다.
+ * camera_json 객체를 참조하여 카메라 하드웨어 설정을 동적으로 변경합니다.
  */
 void capture_thread() {
     cv::VideoCapture cap(0, cv::CAP_V4L2);
@@ -112,6 +115,7 @@ void capture_thread() {
     cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
     std::cout << "[CAPTURE] Initial camera setup complete." << std::endl;
 
+    // 초기 안정화
     std::cout << "[CAPTURE] Stabilizing camera..." << std::endl;
     for (int i = 0; i < 5; ++i) {
         cv::Mat dummy_frame;
@@ -124,15 +128,23 @@ void capture_thread() {
     int current_b = -1, current_c = -1, current_e = -1, current_s = -1;
 
     while (running.load()) {
-        apply_settings(cap, global_camera_json, current_b, current_c, current_e, current_s);
-
+        // 1. 현재 설정으로 메인 스트림 프레임 캡처
+        bool settings_were_changed = apply_settings(cap, global_camera_json, current_b, current_c, current_e, current_s);
+        
+        // [핵심] 설정이 실제로 변경되었을 때만 안정화 작업을 수행
+        if (settings_were_changed) {
+            cap.grab();
+            cap.grab();
+            std::cout << "[CAPTURE] Settings changed:\n" << global_camera_json.dump(4) << std::endl;
+        }
+        
         cv::Mat current_frame;
-
         if (!cap.read(current_frame) || current_frame.empty()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
         
+
         // 소켓으로부터 변경 사항이 있는 지 확인
         {
             std::unique_lock<std::mutex> lk(mtx);
@@ -147,27 +159,17 @@ void capture_thread() {
                 global_camera_json.merge_patch(*request_json);
                 request_json.reset();
 
-                // 안정화 작업
-                lk.unlock();
-                std::cout << "[CAPTURE] Stabilizing after applying new settings..." << std::endl;
-                cap.grab();
-                cap.grab();
-                std::cout << "[CAPTURE] Stabilization complete." << std::endl;
-                
-            } else {
-                // debug
-                cv::imshow("Preview", current_frame);
-                cv::waitKey(1);
-                //imwrite("result.jpg", current_frame);
-                // 메인 스트림 프레임을 writer 스레드에 전달
-                if (frame_queue.size() >= 2) frame_queue.pop_front();
-                frame_queue.push_back(current_frame.clone());
-                lk.unlock();
-                cv_writer.notify_one();
             }
-        }
-    }
 
+            cv::imshow("Preview", current_frame);
+            cv::waitKey(1);
+
+            // 메인 스트림 프레임을 writer 스레드에 전달
+            if (frame_queue.size() >= 2) frame_queue.pop_front();
+            frame_queue.push_back(current_frame.clone());
+        }
+        cv_writer.notify_one();
+    }
     cap.release();
     std::cout << "[CAPTURE] Capture thread finished and camera resource released." << std::endl;
 }
@@ -215,7 +217,8 @@ void socket_thread() {
 
     while (running.load()) {
         int client_fd = accept(server_fd, NULL, NULL);
-        if (client_fd == -1) { if (running.load()) { perror("accept"); } break; }
+        if (client_fd == -1) break;
+
 
         char buffer[1024] = {0};
         if (read(client_fd, buffer, sizeof(buffer) - 1) > 0) {
@@ -243,9 +246,10 @@ void socket_thread() {
                     if (cv::imencode(".jpg", *before_frame, jpeg_buffer)) {
                         uint8_t type = 1;
                         uint32_t size = htonl(jpeg_buffer.size());
-                        ssize_t w1 = write(client_fd, &type, sizeof(type));
-                        ssize_t w2 = write(client_fd, &size, sizeof(size));
-                        ssize_t w3 = write(client_fd, jpeg_buffer.data(), jpeg_buffer.size());
+                        write(client_fd, &type, sizeof(type));
+                        write(client_fd, &size, sizeof(size));
+                        write(client_fd, jpeg_buffer.data(), jpeg_buffer.size());
+
                         std::cout << "[SOCKET] 'Before' snapshot sent successfully." << std::endl;
                     }
                 }
@@ -257,14 +261,15 @@ void socket_thread() {
     std::cout << "[SOCKET] Socket thread finished." << std::endl;
 }
 
+
+/**
+ * @brief 프로그램 시작 시 설정을 불러오거나 하드웨어 기본값을 읽는 메인 함수
+ */
+
 int main() {
     // SIGINT(Ctrl+C) 핸들러 등록
     signal(SIGINT, signal_handler);
     signal(SIGPIPE, SIG_IGN);
-    {
-        std::unique_lock<std::mutex> lk(mtx);
-        global_camera_json = {{"camera", {{"brightness", 50}, {"contrast", 10}, {"exposure", 0}, {"saturation", 10}}}};
-    }
 
     // 프로그램 시작 시 설정 파일 또는 하드웨어 기본값 불러오기
     {
@@ -276,20 +281,21 @@ int main() {
                 std::cout << "[LOAD] Loaded settings from " << CONFIG_FILE << std::endl;
             } catch (const std::exception& e) {
                 std::cerr << "[ERROR] Failed to parse config file, resetting to hardware defaults: " << e.what() << std::endl;
-                goto read_hardware_defaults; // 파싱 실패 시 하드웨어 기본값 읽기로 이동
+                goto read_hardware_defaults;
             }
         } else {
 read_hardware_defaults:
             std::cout << "[INIT] Config file not found. Reading hardware default values." << std::endl;
             cv::VideoCapture temp_cap(0, cv::CAP_V4L2);
             if (temp_cap.isOpened()) {
-                // 실제 하드웨어에서 현재 설정값들을 읽어옴
                 global_camera_json["camera"]["brightness"] = temp_cap.get(cv::CAP_PROP_BRIGHTNESS);
                 global_camera_json["camera"]["contrast"]   = temp_cap.get(cv::CAP_PROP_CONTRAST);
                 global_camera_json["camera"]["exposure"]   = temp_cap.get(cv::CAP_PROP_EXPOSURE);
                 global_camera_json["camera"]["saturation"] = temp_cap.get(cv::CAP_PROP_SATURATION);
                 temp_cap.release();
                 
+                std::cout << "[CREATE] Creating " << CONFIG_FILE << " with read hardware default values." << std::endl;
+
                 std::cout << global_camera_json.dump(4) << std::endl;
                 std::ofstream new_config_file(CONFIG_FILE);
                 new_config_file << global_camera_json.dump(4);

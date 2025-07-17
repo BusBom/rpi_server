@@ -29,6 +29,7 @@ std::vector<char> request_to_server(const std::string& payload) {
     
     // 1. 소켓 생성
     if ((sock_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "[CGI ERROR] socket() failed: %s\n", strerror(errno));
         return {}; // 실패 시 빈 벡터 반환
     }
 
@@ -38,6 +39,7 @@ std::vector<char> request_to_server(const std::string& payload) {
 
     // 2. 서버에 연결
     if (connect(sock_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        fprintf(stderr, "[CGI ERROR] connect() to %s failed: %s\n", SOCKET_PATH, strerror(errno));
         close(sock_fd);
         return {};
     }
@@ -45,6 +47,7 @@ std::vector<char> request_to_server(const std::string& payload) {
     // 3. JSON 데이터 전송
     ssize_t bytes_sent = send(sock_fd, payload.c_str(), payload.length(), 0);
     if (bytes_sent != (ssize_t)payload.length()) {
+        fprintf(stderr, "[CGI ERROR] send() failed: %s\n", strerror(errno));
         close(sock_fd);
         return {};
     }
@@ -54,6 +57,7 @@ std::vector<char> request_to_server(const std::string& payload) {
     char header[5] = {0};
     ssize_t bytes_read = read(sock_fd, header, 5);
     if (bytes_read != 5) {
+        fprintf(stderr, "[CGI ERROR] read() header failed. Expected 5, got %zd\n", bytes_read);
         close(sock_fd);
         return {};
     }
@@ -64,6 +68,7 @@ std::vector<char> request_to_server(const std::string& payload) {
     img_size = ntohl(img_size); // 네트워크 바이트 순서 -> 호스트 바이트 순서
 
     if (img_size == 0 || img_size > 10 * 1024 * 1024) { // 10MB 이상은 비정상으로 간주
+        fprintf(stderr, "[CGI ERROR] Invalid image size in header: %u\n", img_size);
         close(sock_fd);
         return {};
     }
@@ -74,6 +79,7 @@ std::vector<char> request_to_server(const std::string& payload) {
     while (total_received < img_size) {
         ssize_t result = read(sock_fd, img_buffer.data() + total_received, img_size - total_received);
         if (result <= 0) {
+            fprintf(stderr, "[CGI ERROR] read() body failed: %s\n", strerror(errno));
             close(sock_fd);
             return {}; // 읽기 실패 또는 연결 종료
         }
@@ -105,7 +111,7 @@ int main() {
                 image_jpeg = request_to_server(post_data);
                 
             } catch (std::exception& e) {
-                fprintf(stderr, "JSON 파싱 오류: %s\n", e.what());
+                fprintf(stderr, "[CGI ERROR] JSON parse failed: %s\n", e.what());
             }
         }
         if (!image_jpeg.empty()) {
