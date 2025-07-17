@@ -37,7 +37,7 @@ std::condition_variable cv_response; // 캡처 -> 소켓, 프리뷰 응답 알�
 std::condition_variable cv_writer;   // 캡처 -> 라이터, 새 프레임 알림
 
 // 데이터 교환을 위한 공유 변수
-std::deque<cv::Mat> frame_queue; // 라이터 스레드용 큐
+std::deque<std::shared_ptr<cv::Mat>> frame_queue; // 라이터 스레드용 큐
 nlohmann::json global_camera_json;         // "실적용"된 메인 스트림 설정
 std::optional<nlohmann::json> request_json; // 소켓의 프리뷰 요청
 std::optional<cv::Mat> before_frame_response;      // 소켓을 위한 프리뷰 응답
@@ -166,7 +166,7 @@ void capture_thread() {
 
             // 메인 스트림 프레임을 writer 스레드에 전달
             if (frame_queue.size() >= 2) frame_queue.pop_front();
-            frame_queue.push_back(current_frame.clone());
+            frame_queue.push_back(std::make_shared<cv::Mat>(current_frame));
         }
         cv_writer.notify_one();
     }
@@ -179,18 +179,22 @@ void capture_thread() {
  */
 void writer_thread(cv::VideoWriter* writer) {
     while (running.load()) {
-        std::unique_lock<std::mutex> lk(mtx);        // 큐 접근 잠금
-        cv_writer.wait(lk, []{ return !frame_queue.empty() || !running.load(); });
-                                                    // 큐에 데이터 또는 종료 신호 대기
-        if (!frame_queue.empty()) {
-            cv::Mat latest = frame_queue.back();     // 최신 프레임 취득
-            frame_queue.clear();                     // 큐 비우기
-            lk.unlock();                             // 잠금 해제
+        std::shared_ptr<cv::Mat> latest_frame;
+        {
+            std::unique_lock<std::mutex> lk(mtx);
+            cv_writer.wait(lk, [] {
+                return !frame_queue.empty() || !running.load();
+            });
 
-            std::memcpy(shm_ptr, latest.data, FRAME_SIZE);           // SHM에 바이트 복사
-            writer->write(latest);                                  // VideoWriter로 파일에 기록
-        } else {
-            lk.unlock();                             // 프레임 없으면 잠금만 해제
+            if (!frame_queue.empty()) {
+                latest_frame = frame_queue.back();  // 가장 최신 프레임 가져오기
+                frame_queue.clear();                // 이전 프레임은 모두 삭제
+            }
+        }
+        // 프레임이 있으면 처리
+        if (latest_frame) {
+            std::memcpy(shm_ptr, latest_frame->data, FRAME_SIZE); // 공유 메모리로 복사
+            writer->write(*latest_frame);                         // 파일로 저장
         }
     }
 }
