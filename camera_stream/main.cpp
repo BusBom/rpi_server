@@ -113,6 +113,7 @@ void capture_thread() {
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
     cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
+    //cap.set(cv::CAP_PROP_FPS, 15);          // 프레임 제한
     std::cout << "[CAPTURE] Initial camera setup complete." << std::endl;
 
     // 초기 안정화
@@ -120,7 +121,7 @@ void capture_thread() {
     for (int i = 0; i < 5; ++i) {
         cv::Mat dummy_frame;
         if (!cap.read(dummy_frame)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
     std::cout << "[CAPTURE] Stabilization complete. Starting main loop." << std::endl;
@@ -161,8 +162,8 @@ void capture_thread() {
 
             }
 
-            cv::imshow("Preview", current_frame);
-            cv::waitKey(1);
+            //cv::imshow("Preview", current_frame);
+            //cv::waitKey(1);
 
             // 메인 스트림 프레임을 writer 스레드에 전달
             if (frame_queue.size() >= 2) frame_queue.pop_front();
@@ -247,9 +248,15 @@ void socket_thread() {
 
                 if (before_frame.has_value()) {
                     std::vector<uchar> jpeg_buffer;
-                    if (cv::imencode(".jpg", *before_frame, jpeg_buffer)) {
+                    std::vector<int> encode_params = { cv::IMWRITE_JPEG_QUALITY, 60 };  // 해상도 낮음
+                    
+                    cv::Mat preview_small;
+                    cv::resize(*before_frame, preview_small, cv::Size(640, 360));
+
+                    if (cv::imencode(".jpg", preview_small, jpeg_buffer, encode_params)) {
                         uint8_t type = 1;
                         uint32_t size = htonl(jpeg_buffer.size());
+
                         write(client_fd, &type, sizeof(type));
                         write(client_fd, &size, sizeof(size));
                         write(client_fd, jpeg_buffer.data(), jpeg_buffer.size());
