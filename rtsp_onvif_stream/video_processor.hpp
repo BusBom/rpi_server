@@ -19,6 +19,7 @@ extern "C" {
 struct CroppedObject {
             cv::Mat cropped_image;
             Object object_info; // Metadata about the object
+            std::string ocr_text; // OCR text if available
         };
 
 class VideoProcessor {

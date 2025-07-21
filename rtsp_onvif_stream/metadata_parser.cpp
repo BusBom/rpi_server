@@ -20,7 +20,7 @@ std::string MetadataParser::extractTime(XMLElement* element) {
     return "";
 }
 
-std::vector<Object> MetadataParser::extractObj(XMLElement* root) {
+std::vector<Object> MetadataParser::extractObj(XMLElement* root, const std::string& typeName) {
     std::vector<Object> objItems;
         
     if (!root) return objItems;
@@ -86,13 +86,18 @@ std::vector<Object> MetadataParser::extractObj(XMLElement* root) {
             if (classElem) {
                 XMLElement* type = classElem->FirstChildElement("tt:Type");
                 if (type) {
-                    const char* typeName = type->GetText();
+                    const char* typeText = type->GetText();
                     const char* likelihood = type->Attribute("Likelihood");
                     
-                    if (typeName && likelihood) {
+                    if (typeText && likelihood) {
                         objItem.confidence = std::stod(likelihood);
-                        objItem.typeName = typeName; // Set the type name
-                        objItems.push_back(objItem);
+                        objItem.typeName = typeText; // Set the type name
+                        
+                        // If typeName parameter is empty, include all objects
+                        // Otherwise only include objects that match the specified type
+                        if (typeName.empty() || objItem.typeName == typeName) {
+                            objItems.push_back(objItem);
+                        }
                     }
                 }
             }
@@ -124,10 +129,10 @@ void MetadataParser::processXmlDoc(XMLDocument& doc, std::vector<Object>& result
         std::cout << "Timestamp: " << time << std::endl;
     }
     
-    // 인간 객체 정보 추출
-    std::vector<Object> detections = extractObj(root);
+    // 객체 정보 추출 - 필터링을 위해 "LicensePlate"를 인자로 전달
+    std::vector<Object> detections = extractObj(root, "LicensePlate");
     if (!detections.empty()) {
-        std::cout << "Detected " << detections.size() << " Object(s):" << std::endl;
+        std::cout << "Detected " << detections.size() << " LicensePlate(s):" << std::endl;
         // for (const auto& item : detections) {
         //     std::cout << "  Type: " << item.typeName << "  ID: " << item.objectId << ", Confidence: " << item.confidence << std::endl;
         //     std::cout << "    BoundingBox: [" << item.boundingBox.left << ", " << item.boundingBox.top 

@@ -22,12 +22,18 @@ extern "C" {
 
 #include "metadata_parser.hpp"
 #include "video_processor.hpp"
+#include "tf_ocr.hpp"
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
 
 
 class HanwhaStreamer {
     private:
         MetadataParser metadataParser; // MetadataParser
         VideoProcessor videoProcessor; // VideoProcessor
+        TFOCR tf_ocr;
         AVFormatContext *formatContext = nullptr;
         AVPacket pkt;
         AVDictionary *options = nullptr;
@@ -35,6 +41,8 @@ class HanwhaStreamer {
         int data_stream_index = -1;
         int video_stream_index = -1;
         bool is_initialized = false;
+
+        std::vector<CroppedObject> cropped_objects; // Store cropped objects for debugging
         
         // Shared memory for video frames
         int frame_shm_fd_ = -1;
@@ -56,16 +64,21 @@ class HanwhaStreamer {
         int64_t output_pts_ = 0;
         bool output_initialized_ = false;
         std::string output_rtsp_url_;
+
+        // For multi-threading OCR
+        std::thread ocr_thread_;
+        std::queue<CroppedObject> ocr_queue_;
+        std::mutex queue_mutex_;
+        std::condition_variable queue_cond_;
+        bool stop_ocr_thread_ = false;
+
+        void ocr_worker();
         
     public:
         HanwhaStreamer();
-        int initialize(const std::string& rtsp_url);
-        int initializeOutput(const std::string& output_rtsp_url, int width, int height);
-        int run();
+        int initialize(const std::string& rtsp_url, const std::string& ocr_model_path, const std::string& ocr_labels_path);
+        void run();
         ~HanwhaStreamer();
-        
-    private:
-        int sendFrameToRTSP(const cv::Mat& frame);
 };
 
 #endif // HANWHA_STREAMER_HPP

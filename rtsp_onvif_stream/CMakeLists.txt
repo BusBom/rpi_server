@@ -17,6 +17,13 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
     libswscale
 )
 
+set(TFLITE_INCLUDE_DIR "/home/cty0613/tensorflow_src/bazel-tensorflow_src")         # 예: 빌드된 TFLite의 헤더 경로
+set(TFLITE_STATIC_LIB "/home/cty0613/tensorflow_src/bazel-bin/tensorflow/lite/libtensorflowlite.so")  # 정적 라이브러리 경로
+message(STATUS "Found TF-LITE Includes:" ${TFLITE_INCLUDE_DIR})
+message(STATUS "Found TF-LITE Libs:" ${TFLITE_STATIC_LIB})
+
+include_directories(${TFLITE_INCLUDE_DIR})
+
 # TinyXML2
 # set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/tinyxml2")
 # find_package(tinyxml2 REQUIRED)
@@ -24,12 +31,13 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
 # OpenCV
 find_package(OpenCV REQUIRED)
 
-add_executable(rtsp_onvif_ch hanwha_streamer.cpp metadata_parser.cpp video_processor.cpp main.cpp)
+add_executable(rtsp_onvif_ch hanwha_streamer.cpp metadata_parser.cpp video_processor.cpp tf_ocr.cpp main.cpp)
 
 # include paths
 target_include_directories(rtsp_onvif_ch PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${OpenCV_INCLUDE_DIRS}
+    ${TFLITE_INCLUDE_DIR}
 )
 
 
@@ -38,7 +46,9 @@ target_link_libraries(rtsp_onvif_ch PRIVATE
     PkgConfig::LIBAV
     tinyxml2
     ${OpenCV_LIBS}
+    ${TFLITE_STATIC_LIB}
     rt  # For shared memory functions
+    pthread # For std::thread
 )
 
 

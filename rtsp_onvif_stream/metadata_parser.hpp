@@ -31,7 +31,7 @@ class MetadataParser {
         std::vector<Object> result;
 
         std::string extractTime(tinyxml2::XMLElement* element);
-        std::vector<Object> extractObj(tinyxml2::XMLElement* element);
+        std::vector<Object> extractObj(tinyxml2::XMLElement* element, const std::string& typeName = "LicensePlate");
         
         void processXmlDoc(tinyxml2::XMLDocument& doc, std::vector<Object>& result);
         void cleanupBuffer();
