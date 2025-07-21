@@ -1,12 +1,14 @@
 
 
-TARGET = stream_test
+TARGET = capture
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
 CXX = g++
-CXXFLAGS = -O2 -Wall
-LDFLAGS = -lfcgi -lrt
+CXXFLAGS = -std=c++11 -Wall -Wextra
+FCGI_FLAGS = -lfcgi
+RT_FLAGS = -lrt
+OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`
 
 CGI_DIR = /usr/lib/cgi-bin
 
@@ -17,7 +19,7 @@ SITES_ENABLED = /etc/nginx/sites-enabled
 .PHONY: build install-cgi install-conf clean
 
 build: $(SRC)
-	$(CXX) $(CXXFLAGS) -o build/$(BIN) $(SRCS) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o build/$(BIN) $(SRCS) $(FCGI_FLAGS) $(RT_FLAGS) $(OPENCV_FLAGS)
 
 install-cgi: build
 	@echo "Installing CGI binary to $(CGI_DIR)..."
