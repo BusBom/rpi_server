@@ -46,12 +46,26 @@ class HanwhaStreamer {
         void* detection_shm_ptr_ = nullptr;
         size_t detection_shm_size_ = 0;
         
-
+        // RTSP output components
+        AVFormatContext* output_format_context_ = nullptr;
+        AVStream* output_stream_ = nullptr;
+        AVCodecContext* output_codec_context_ = nullptr;
+        const AVCodec* output_codec_ = nullptr;
+        AVFrame* output_frame_ = nullptr;
+        SwsContext* output_sws_context_ = nullptr;
+        int64_t output_pts_ = 0;
+        bool output_initialized_ = false;
+        std::string output_rtsp_url_;
+        
     public:
         HanwhaStreamer();
         int initialize(const std::string& rtsp_url);
+        int initializeOutput(const std::string& output_rtsp_url, int width, int height);
         int run();
         ~HanwhaStreamer();
+        
+    private:
+        int sendFrameToRTSP(const cv::Mat& frame);
 };
 
 #endif // HANWHA_STREAMER_HPP
