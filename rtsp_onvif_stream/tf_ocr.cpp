@@ -1,6 +1,114 @@
 // main.cpp
 #include "tf_ocr.hpp"
 
+void TFOCR::save(const cv::Mat& img, const std::string& filename) {
+    std::string full_path = preprocess_dir + "/" + filename;
+    cv::imwrite(full_path, img);
+}
+
+std::vector<cv::Point2f> TFOCR::order_points(const std::vector<cv::Point>& pts) {
+    std::vector<cv::Point2f> src(4);
+
+    auto sum = [](const cv::Point2f& p) { return p.x + p.y; };
+    auto diff = [](const cv::Point2f& p) { return p.y - p.x; };
+
+    src[0] = *std::min_element(pts.begin(), pts.end(), [&](const cv::Point2f& a, const cv::Point2f& b) { return sum(a) < sum(b); }); // TL
+    src[2] = *std::max_element(pts.begin(), pts.end(), [&](const cv::Point2f& a, const cv::Point2f& b) { return sum(a) < sum(b); }); // BR
+    src[1] = *std::min_element(pts.begin(), pts.end(), [&](const cv::Point2f& a, const cv::Point2f& b) { return diff(a) < diff(b); }); // TR
+    src[3] = *std::max_element(pts.begin(), pts.end(), [&](const cv::Point2f& a, const cv::Point2f& b) { return diff(a) < diff(b); }); // BL
+
+    return src;
+}
+
+
+cv::Mat TFOCR::preprocess(const cv::Mat& input, float resize_factor) {
+    cv::Mat gray, resized, binary, kernel;
+    cv::cvtColor(input, gray, cv::COLOR_BGR2GRAY);
+    cv::resize(gray, resized, cv::Size(), resize_factor, resize_factor, cv::INTER_CUBIC);
+    cv::threshold(resized, binary, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+    kernel = cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3));
+    cv::dilate(binary, binary, kernel, cv::Point(-1, -1), 1);
+    return binary;
+}
+
+bool TFOCR::extract_plate_region(const cv::Mat& input, cv::Mat& output_plate) {
+    cv::Mat hsv;
+    cv::cvtColor(input, hsv, cv::COLOR_BGR2HSV);
+    // save(hsv, prefix + "01_hsv.png");
+
+    cv::Scalar lower_yellow(15, 100, 100);
+    cv::Scalar upper_yellow(35, 255, 255);
+    cv::Mat mask;
+    cv::inRange(hsv, lower_yellow, upper_yellow, mask);
+
+    cv::Mat masked;
+    cv::bitwise_and(input, input, masked, mask);
+
+    cv::Mat gray, blur, edges;
+    cv::cvtColor(masked, gray, cv::COLOR_BGR2GRAY);
+    cv::GaussianBlur(gray, blur, cv::Size(5, 5), 0);
+    cv::Canny(blur, edges, 50, 150);
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(edges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    std::vector<cv::Point> candidate;
+
+    for (const auto& cnt : contours) {
+        std::vector<cv::Point> approx;
+        cv::approxPolyDP(cnt, approx, 0.02 * cv::arcLength(cnt, true), true);
+        double area = cv::contourArea(approx);
+        if (approx.size() == 4 && area > 500) {
+            candidate = approx;
+            break;
+        }
+    }
+
+    if (candidate.empty()) {
+        return false;
+    }
+
+    std::vector<cv::Point2f> corners = order_points(candidate);
+
+    cv::Mat temp = input.clone();
+    for (const auto& pt : corners)
+        cv::circle(temp, pt, 5, cv::Scalar(0, 255, 0), -1);
+    // save(temp, prefix + "05_detected_corners.png");
+
+    cv::Point2f tl = corners[0], tr = corners[1], br = corners[2], bl = corners[3];
+    int width = static_cast<int>(std::max(cv::norm(br - bl), cv::norm(tr - tl)));
+    int height = static_cast<int>(std::max(cv::norm(tr - br), cv::norm(tl - bl)));
+
+    float fx = static_cast<float>(width - 1);
+    float fy = static_cast<float>(height - 1);
+
+    std::vector<cv::Point2f> dst_pts = {
+        {0.0f, 0.0f},
+        {fx, 0.0f},
+        {fx, fy},
+        {0.0f, fy}
+    };
+
+    cv::Mat M = cv::getPerspectiveTransform(corners, dst_pts);
+    cv::warpPerspective(input, output_plate, M, cv::Size(width, height));
+    // save(output_plate, prefix + "06_warped_plate.png");
+
+    return true;
+}
+
+cv::Mat TFOCR::preprocess_plate(const cv::Mat& input_img, int index) {
+    cv::Mat plate_img_origin = input_img.clone();
+
+    cv::Mat plate_img;
+    if (!extract_plate_region(input_img, plate_img)) {
+        // std::cout << "❌ [" << index << "] 번호판 사각형 추출 실패" << std::endl;
+        return plate_img_origin;
+    }
+
+    return plate_img; // Return the processed plate image
+
+}
+
+
 std::map<int, std::string> TFOCR::loadLabelMap(const std::string& path) {
     std::map<int, std::string> label_map;
     std::ifstream file(path);
@@ -53,9 +161,11 @@ void TFOCR::load_ocr(const std::string& model_path, const std::string& labels_pa
 
 std::string TFOCR::run_ocr(const cv::Mat& input_img) {
 
-    cv::Mat gray;
+    
+    cv::Mat gray = preprocess_plate(input_img, 0); // Preprocess the input image
     cv::cvtColor(input_img, gray, cv::COLOR_BGR2GRAY);
     cv::resize(gray, gray, cv::Size(192, 96));
+    cv::imwrite("debug_ocr_input.png", gray); // Debugging line
     gray.convertTo(gray, CV_32FC1, 1.0 / 255.0);
 
     // Set input

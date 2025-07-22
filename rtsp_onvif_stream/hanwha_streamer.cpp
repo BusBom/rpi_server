@@ -128,16 +128,24 @@ void HanwhaStreamer::run() {
         if (pkt.stream_index == data_stream_index) {
             data_packet_count++;
             // std::cout << "Processing data packet #" << data_packet_count << " (size: " << pkt.size << " bytes)" << std::endl;
-            std::cout << "Data :: Packet PTS: " << pkt.pts << ", DTS: " << pkt.dts << std::endl;
+            // std::cout << "Data :: Packet PTS: " << pkt.pts << ", DTS: " << pkt.dts << std::endl;
             metadataParser.processPacket(pkt.data, pkt.size); // Process the metadata packet
             std::vector<Object> result = metadataParser.getResults(); // Get the results from the parser
             
-            // Send detection results to video processor
-            if (videoProcessor.isInitialized() && !result.empty()) {
+            // Send detection results to video processor (including empty results to clear previous detections)
+            if (videoProcessor.isInitialized()) {
                 // Only DTS is valid
                 if (pkt.dts != AV_NOPTS_VALUE) {
+                    if (!result.empty()) {
+                        std::cout << "Received " << result.size() << " detection results (DTS: " << pkt.dts << ") Updated to video Processor" << std::endl;
+                        // std::cout << "First result: Type: " << result[0].typeName 
+                        //           << ", ID: " << result[0].objectId 
+                        //           << ", Confidence: " << result[0].confidence << std::endl;
+                    } else {
+                        std::cout << "No detection results - clearing previous detections (DTS: " << pkt.dts << ")" << std::endl;
+                    }
                     videoProcessor.setDetectionResults(result, pkt.dts);
-                    std::cout << "Updated video processor with " << result.size() << " detection results (DTS: " << pkt.dts << ")" << std::endl;
+                    // std::cout << "Updated video processor with " << result.size() << " detection results (DTS: " << pkt.dts << ")" << std::endl;
                 } else {
                     std::cout << "Skipping detection results due to invalid DTS" << std::endl;
                 }
@@ -147,7 +155,7 @@ void HanwhaStreamer::run() {
             video_packet_count++;
             // Process video packet with OpenCV display
             if (videoProcessor.isInitialized()) {
-                std::cout << "Video :: Packet PTS: " << pkt.pts << ", DTS: " << pkt.dts << std::endl;
+                // std::cout << "Video :: Packet PTS: " << pkt.pts << ", DTS: " << pkt.dts << std::endl;
                 videoProcessor.processPacket(&pkt, pkt.dts);
                 
                 // Get processed frame and cropped objects
@@ -164,7 +172,9 @@ void HanwhaStreamer::run() {
                 queue_cond_.notify_one();
                 
                 // Print cropped objects information to terminal
-                cv::imwrite("frame.jpg", processed_frame); // Save the processed frame for debugging
+                // cv::imwrite("frame.jpg", processed_frame); // Save the processed frame for debugging
+                cv::imshow("Processed Frame", processed_frame);
+                cv::waitKey(1); // Display the frame for a brief moment
             }
         }
         
@@ -172,7 +182,6 @@ void HanwhaStreamer::run() {
     }
     
     metadataParser.processBuffer(); // Process any remaining buffered data
-    
     avformat_close_input(&formatContext); // Close the input
 }
 

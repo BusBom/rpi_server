@@ -41,7 +41,7 @@ std::vector<Object> MetadataParser::extractObj(XMLElement* root, const std::stri
         if (!objectId) continue;
         
         Object objItem;
-        objItem.typeName = "Unknown";
+        objItem.typeName = "None";
         objItem.objectId = std::stoi(objectId);
         objItem.confidence = 0.0;
         objItem.boundingBox = {0.0, 0.0, 0.0, 0.0};
@@ -89,21 +89,18 @@ std::vector<Object> MetadataParser::extractObj(XMLElement* root, const std::stri
                     const char* typeText = type->GetText();
                     const char* likelihood = type->Attribute("Likelihood");
                     
-                    if (typeText && likelihood) {
+                    if (typeText && likelihood && (objItem.typeName = typeText, objItem.typeName == typeName)) {
                         objItem.confidence = std::stod(likelihood);
-                        objItem.typeName = typeText; // Set the type name
-                        
-                        // If typeName parameter is empty, include all objects
-                        // Otherwise only include objects that match the specified type
-                        if (typeName.empty() || objItem.typeName == typeName) {
-                            objItems.push_back(objItem);
-                        }
+                        objItems.push_back(objItem);
                     }
                 }
             }
         }
     }
-    
+
+     if (objItems.empty()) {
+        return std::vector<Object>(); // 빈 vector 반환
+    }
     return objItems;
 }
 
@@ -133,13 +130,10 @@ void MetadataParser::processXmlDoc(XMLDocument& doc, std::vector<Object>& result
     std::vector<Object> detections = extractObj(root, "LicensePlate");
     if (!detections.empty()) {
         std::cout << "Detected " << detections.size() << " LicensePlate(s):" << std::endl;
-        // for (const auto& item : detections) {
-        //     std::cout << "  Type: " << item.typeName << "  ID: " << item.objectId << ", Confidence: " << item.confidence << std::endl;
-        //     std::cout << "    BoundingBox: [" << item.boundingBox.left << ", " << item.boundingBox.top 
-        //               << ", " << item.boundingBox.right << ", " << item.boundingBox.bottom << "]" << std::endl;
-        //     std::cout << "    Center: (" << item.centerOfGravity.x << ", " << item.centerOfGravity.y << ")" << std::endl;
-        // }
         result = detections; // Store the results in the provided vector
+    } else {
+        std::cout << "No LicensePlate objects found" << std::endl;
+        result.clear(); // Clear the results if no detections found
     }
     
 }

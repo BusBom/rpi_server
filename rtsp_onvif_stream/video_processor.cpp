@@ -121,8 +121,16 @@ bool VideoProcessor::processPacket(AVPacket* packet, int64_t dts) {
 
 void VideoProcessor::setDetectionResults(const std::vector<Object>& objects, const int64_t dts) {
     std::lock_guard<std::mutex> lock(objects_mutex_);
-    detection_objects_queue_.push_back(objects);
-    dts_queue_.push_back(dts); // Store the DTS number for reference
+    if (objects.empty()) {
+        std::cout << "No detection results to update, clearing existing detections" << std::endl;
+        detection_objects_queue_.push_back(std::vector<Object>());
+        dts_queue_.push_back(dts);
+        return;
+    } else {
+        detection_objects_queue_.push_back(objects);
+        dts_queue_.push_back(dts); // Store the DTS number for reference
+        return;
+    }
 }
 
 void VideoProcessor::processFrame(AVFrame* frame) {
@@ -136,10 +144,10 @@ void VideoProcessor::processFrame(AVFrame* frame) {
     // Clone the image for processing
     processed_frame_ = image.clone();
     
-    // Draw detection boxes on the processed frame
+    // Draw detection boxes on the processed frame (drawDetectionBoxes handles its own mutex)
     drawDetectionBoxes(processed_frame_);
 
-    // Crop detection boxes 
+    // Crop detection boxes (cropDetectionBoxes handles its own mutex)
     cropped_objects_ = cropDetectionBoxes(image);
 
 }
@@ -157,11 +165,16 @@ std::vector<CroppedObject> VideoProcessor::cropDetectionBoxes(cv::Mat& image) {
     }
     
     if (detection_objects_queue_.empty()) {
-        return {}; // No detections to crop
+        return {}; // No detections to crop - exit early
     }
     
     // Use the most recent detection objects
     auto detection_objects_ = detection_objects_queue_.back();
+    
+    // Check if the most recent detection result is empty
+    if (detection_objects_.empty()) {
+        return {}; // Most recent result indicates no detections
+    }
     
     std::vector<CroppedObject> cropped_objects;
     
@@ -212,11 +225,16 @@ void VideoProcessor::drawDetectionBoxes(cv::Mat& image) {
     }
     
     if (detection_objects_queue_.empty()) {
-        return; // No detections
+        return; // No detections - exit early
     }
     
     // Use the most recent detection objects (just peek)
     auto detection_objects_ = detection_objects_queue_.back();
+    
+    // Check if the most recent detection result is empty
+    if (detection_objects_.empty()) {
+        return; // Most recent result indicates no detections - don't draw anything
+    }
     
     for (const auto& obj : detection_objects_) {
         // Scale bounding box coordinates to current resolution
