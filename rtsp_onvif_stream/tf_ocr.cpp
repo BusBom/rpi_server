@@ -34,7 +34,6 @@ cv::Mat TFOCR::preprocess(const cv::Mat& input, float resize_factor) {
 bool TFOCR::extract_plate_region(const cv::Mat& input, cv::Mat& output_plate) {
     cv::Mat hsv;
     cv::cvtColor(input, hsv, cv::COLOR_BGR2HSV);
-    // save(hsv, prefix + "01_hsv.png");
 
     cv::Scalar lower_yellow(15, 100, 100);
     cv::Scalar upper_yellow(35, 255, 255);
@@ -72,7 +71,6 @@ bool TFOCR::extract_plate_region(const cv::Mat& input, cv::Mat& output_plate) {
     cv::Mat temp = input.clone();
     for (const auto& pt : corners)
         cv::circle(temp, pt, 5, cv::Scalar(0, 255, 0), -1);
-    // save(temp, prefix + "05_detected_corners.png");
 
     cv::Point2f tl = corners[0], tr = corners[1], br = corners[2], bl = corners[3];
     int width = static_cast<int>(std::max(cv::norm(br - bl), cv::norm(tr - tl)));
@@ -90,7 +88,6 @@ bool TFOCR::extract_plate_region(const cv::Mat& input, cv::Mat& output_plate) {
 
     cv::Mat M = cv::getPerspectiveTransform(corners, dst_pts);
     cv::warpPerspective(input, output_plate, M, cv::Size(width, height));
-    // save(output_plate, prefix + "06_warped_plate.png");
 
     return true;
 }
@@ -100,7 +97,6 @@ cv::Mat TFOCR::preprocess_plate(const cv::Mat& input_img, int index) {
 
     cv::Mat plate_img;
     if (!extract_plate_region(input_img, plate_img)) {
-        // std::cout << "❌ [" << index << "] 번호판 사각형 추출 실패" << std::endl;
         return plate_img_origin;
     }
 
@@ -151,12 +147,6 @@ void TFOCR::load_ocr(const std::string& model_path, const std::string& labels_pa
     // Removed local interpreter declaration, now using member variable
     tflite::InterpreterBuilder(*model, resolver)(&interpreter);
     interpreter->AllocateTensors();
-
-    // Set input and output details
-    // auto input_details = interpreter->inputs();
-    // float* input = interpreter->typed_input_tensor<float>(0);
-    // auto output_details = interpreter->outputs();
-    // auto output_details = interpreter->tensor(interpreter->outputs()[0]);
 }
 
 std::string TFOCR::run_ocr(const cv::Mat& input_img) {
@@ -175,7 +165,7 @@ std::string TFOCR::run_ocr(const cv::Mat& input_img) {
     // Run inference
     if (interpreter->Invoke() != kTfLiteOk) {
         std::cerr << "ocr inference failed..." << std::endl;
-        return ""; // Changed from -1 to ""
+        return "";
     }
 
     // Decode output

@@ -1,6 +1,8 @@
 #include "video_processor.hpp"
 #include <iostream>
 #include <mutex>
+#include <algorithm>
+#include <cmath>
 
 VideoProcessor::VideoProcessor(const std::string& window_name)
     : codec_context_(nullptr)
@@ -12,6 +14,7 @@ VideoProcessor::VideoProcessor(const std::string& window_name)
     , width_(0)
     , height_(0)
     , initialized_(false)
+    , point_(1920, 1080)
     , dts_queue_() // Initialize dts_number as an empty queue 
 {
 }
@@ -127,7 +130,23 @@ void VideoProcessor::setDetectionResults(const std::vector<Object>& objects, con
         dts_queue_.push_back(dts);
         return;
     } else {
-        detection_objects_queue_.push_back(objects);
+        // Create a copy of objects to modify
+        std::vector<Object> objects_with_distance = objects;
+        
+        // Calculate distance for each object and store in distance field
+        for (auto& obj : objects_with_distance) {
+            double dx = obj.centerOfGravity.x - static_cast<double>(point_.x);
+            double dy = obj.centerOfGravity.y - static_cast<double>(point_.y);
+            obj.distance = static_cast<int>(std::sqrt(dx * dx + dy * dy));
+        }
+        
+        // Sort objects by distance (closest first)
+        std::sort(objects_with_distance.begin(), objects_with_distance.end(), 
+                  [](const Object& a, const Object& b) {
+                      return a.distance < b.distance;
+                  });
+        
+        detection_objects_queue_.push_back(objects_with_distance);
         dts_queue_.push_back(dts); // Store the DTS number for reference
         return;
     }
@@ -179,6 +198,7 @@ std::vector<CroppedObject> VideoProcessor::cropDetectionBoxes(cv::Mat& image) {
     std::vector<CroppedObject> cropped_objects;
     
     for (const auto& obj : detection_objects_) {
+        
         // Scale bounding box coordinates to current resolution
         int x1 = static_cast<int>((obj.boundingBox.left / ORIGINAL_WIDTH) * width_);
         int y1 = static_cast<int>((obj.boundingBox.top / ORIGINAL_HEIGHT) * height_);

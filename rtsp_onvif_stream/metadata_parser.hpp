@@ -22,6 +22,7 @@ struct Object {
     double confidence;
     BoundingBox boundingBox;
     Point centerOfGravity;
+    int distance; // Distance from the camera
 };
 
 class MetadataParser {

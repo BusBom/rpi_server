@@ -111,7 +111,7 @@ void MetadataParser::processXmlDoc(XMLDocument& doc, std::vector<Object>& result
         return;
     }
     
-    std::cout << "Root Node: " << root->Name() << std::endl;
+    // std::cout << "Root Node: " << root->Name() << std::endl;
     
     // 자식 요소가 있는지 확인
     bool hasChildren = root->FirstChildElement() != nullptr;

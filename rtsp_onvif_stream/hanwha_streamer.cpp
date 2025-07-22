@@ -17,12 +17,17 @@ void HanwhaStreamer::ocr_worker() {
             return;
         }
 
-        CroppedObject cropped_object = std::move(ocr_queue_.front());
+        std::vector<CroppedObject> cropped_objects = std::move(ocr_queue_.front());
         ocr_queue_.pop();
         lock.unlock();
 
-        std::string ocr_text = tf_ocr.run_ocr(cropped_object.cropped_image);
-        std::cout << "OCR Result: " << ocr_text << std::endl;
+        std::cout << "Running OCR on cropped object..." << std::endl;
+
+        for (auto& cropped_object : cropped_objects) {  
+            std::string ocr_text = tf_ocr.run_ocr(cropped_object.cropped_image);
+            cropped_object.ocr_text = ocr_text;
+        }
+
     }
 }
 
@@ -127,8 +132,7 @@ void HanwhaStreamer::run() {
         
         if (pkt.stream_index == data_stream_index) {
             data_packet_count++;
-            // std::cout << "Processing data packet #" << data_packet_count << " (size: " << pkt.size << " bytes)" << std::endl;
-            // std::cout << "Data :: Packet PTS: " << pkt.pts << ", DTS: " << pkt.dts << std::endl;
+    
             metadataParser.processPacket(pkt.data, pkt.size); // Process the metadata packet
             std::vector<Object> result = metadataParser.getResults(); // Get the results from the parser
             
@@ -137,15 +141,11 @@ void HanwhaStreamer::run() {
                 // Only DTS is valid
                 if (pkt.dts != AV_NOPTS_VALUE) {
                     if (!result.empty()) {
-                        std::cout << "Received " << result.size() << " detection results (DTS: " << pkt.dts << ") Updated to video Processor" << std::endl;
-                        // std::cout << "First result: Type: " << result[0].typeName 
-                        //           << ", ID: " << result[0].objectId 
-                        //           << ", Confidence: " << result[0].confidence << std::endl;
+                        // std::cout << "Received " << result.size() << " detection results (DTS: " << pkt.dts << ") Updated to video Processor" << std::endl;
                     } else {
-                        std::cout << "No detection results - clearing previous detections (DTS: " << pkt.dts << ")" << std::endl;
+                        // std::cout << "No detection results - clearing previous detections (DTS: " << pkt.dts << ")" << std::endl;
                     }
                     videoProcessor.setDetectionResults(result, pkt.dts);
-                    // std::cout << "Updated video processor with " << result.size() << " detection results (DTS: " << pkt.dts << ")" << std::endl;
                 } else {
                     std::cout << "Skipping detection results due to invalid DTS" << std::endl;
                 }
@@ -165,9 +165,7 @@ void HanwhaStreamer::run() {
                 // Push cropped objects to the OCR queue
                 {
                     std::lock_guard<std::mutex> lock(queue_mutex_);
-                    for (const auto& obj : cropped_objects) {
-                        ocr_queue_.push(obj);
-                    }
+                    ocr_queue_.push(cropped_objects);
                 }
                 queue_cond_.notify_one();
                 

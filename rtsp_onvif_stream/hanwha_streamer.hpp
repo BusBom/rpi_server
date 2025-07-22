@@ -42,6 +42,10 @@ class HanwhaStreamer {
         int video_stream_index = -1;
         bool is_initialized = false;
 
+        const char* SHM_NAME = "/busbom_approach";
+        const size_t SHM_SIZE = 4096; // 1MB for shared memory
+        void* shm_ptr = nullptr; // Shared memory pointer
+
         std::vector<CroppedObject> cropped_objects; // Store cropped objects for debugging
         
         // Shared memory for video frames
@@ -67,7 +71,7 @@ class HanwhaStreamer {
 
         // For multi-threading OCR
         std::thread ocr_thread_;
-        std::queue<CroppedObject> ocr_queue_;
+        std::queue<std::vector<CroppedObject>> ocr_queue_;
         std::mutex queue_mutex_;
         std::condition_variable queue_cond_;
         bool stop_ocr_thread_ = false;

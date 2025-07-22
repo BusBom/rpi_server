@@ -33,6 +33,7 @@ private:
     int width_;
     int height_;
     bool initialized_;
+    cv::Point point_;
 
     const double ORIGINAL_WIDTH = 3840.0;   // source resolution width
     const double ORIGINAL_HEIGHT = 2160.0;  // source resolution height
