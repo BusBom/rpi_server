@@ -15,8 +15,6 @@ std::string MetadataParser::extractTime(XMLElement* element) {
             if (utcTime) return utcTime;
         }
     }
-    
-        
     return "";
 }
 

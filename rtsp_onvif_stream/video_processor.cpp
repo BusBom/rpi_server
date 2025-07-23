@@ -125,7 +125,7 @@ bool VideoProcessor::processPacket(AVPacket* packet, int64_t dts) {
 void VideoProcessor::setDetectionResults(const std::vector<Object>& objects, const int64_t dts) {
     std::lock_guard<std::mutex> lock(objects_mutex_);
     if (objects.empty()) {
-        std::cout << "No detection results to update, clearing existing detections" << std::endl;
+        // std::cout << "No detection results to update, clearing existing detections" << std::endl;
         detection_objects_queue_.push_back(std::vector<Object>());
         dts_queue_.push_back(dts);
         return;

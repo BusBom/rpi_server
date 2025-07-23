@@ -9,7 +9,6 @@
 #include <sys/stat.h>              // fchmod, umask
 #include <cstring>                 // std::memcpy
 #include <iostream>                // std::cout, std::cerr
-// #include <signal.h>                // std::signal
 #include <csignal>                // std::signal
 #include <atomic>                  // std::atomic
 

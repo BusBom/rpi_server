@@ -42,21 +42,11 @@ class HanwhaStreamer {
         int video_stream_index = -1;
         bool is_initialized = false;
 
-        const char* SHM_NAME = "/busbom_approach";
-        const size_t SHM_SIZE = 4096; // 1MB for shared memory
-        void* shm_ptr = nullptr; // Shared memory pointer
+        const char * shm_name_;
+        const size_t shm_size_;
+        void* shm_ptr_;
 
         std::vector<CroppedObject> cropped_objects; // Store cropped objects for debugging
-        
-        // Shared memory for video frames
-        int frame_shm_fd_ = -1;
-        void* frame_shm_ptr_ = nullptr;
-        size_t frame_shm_size_ = 0;
-        
-        // Shared memory for detection results
-        int detection_shm_fd_ = -1;
-        void* detection_shm_ptr_ = nullptr;
-        size_t detection_shm_size_ = 0;
         
         // RTSP output components
         AVFormatContext* output_format_context_ = nullptr;
