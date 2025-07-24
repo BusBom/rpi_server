@@ -11,7 +11,7 @@ OnvifMeta MetadataParser::fetchMetadata(AVPacket* pkt) {
     }
 
     // Process the packet data
-    process_packet(pkt->data, pkt->size, pkt->pts, pkt->dts);
+    process_packet(pkt->data, pkt->size);
 
     // OnvifMeta 구조체에 데이터 설정
     meta.pts = pkt->pts;
@@ -108,11 +108,10 @@ std::vector<Object> MetadataParser::extractObj(XMLElement* root, const std::stri
 }
 
 // Process the packet data and extract raw metadata (raw xml)
-void MetadataParser::process_packet(const uint8_t* data, int size, int64_t pts, int64_t dts) {
+void MetadataParser::process_packet(const uint8_t* data, int size) {
     if (!data || size <= 0) return;
     // Add data to the buffer
     xml_buffer_.append(reinterpret_cast<const char*>(data), size);
-    pts_buffer_= pts;
 
     if (!process_buffer()) {
         std::cerr << "[HANWHA-ONVIF META] Failed to process metadata buffer" << std::endl;

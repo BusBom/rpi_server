@@ -52,7 +52,7 @@ class MetadataParser {
         std::vector<Object> extractObj(tinyxml2::XMLElement* element, const std::string& typeName = "LicensePlate");
 
         void cleanup();
-        void process_packet(const uint8_t* data, int size, int64_t pts, int64_t dts);
+        void process_packet(const uint8_t* data, int size);
         bool process_buffer();
         
     public:

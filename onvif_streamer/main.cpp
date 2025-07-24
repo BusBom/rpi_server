@@ -17,20 +17,27 @@ extern "C" {
 
 #include "metadata.hpp"
 #include "video.hpp"
+#include "ocr.hpp"
 
 #define RTSP_URL "rtsp://192.168.0.64/profile2/media.smp"
-#define MAX_PACKET_BUFFER 50
-#define PTS_TOLERANCE 2500 // 100ms tolerance for PTS synchronization
+#define MAX_PACKET_BUFFER 200
+#define PTS_TOLERANCE 2000 // 100ms tolerance for PTS synchronization
 
 AVFormatContext* formatContext = nullptr;
 AVPacket pkt;
 AVDictionary* options = nullptr;
 
-std::deque<AVPacket*> v_buf_;                       // 비디오 패킷 버퍼
+std::deque< AVPacket* > v_buf_;                       // 비디오 패킷 버퍼
 std::deque< OnvifMeta > d_buf_;           // 메타데이터 패킷 버퍼
 std::mutex buf_mutex_;                              // 버퍼 접근 동기화 뮤텍스
 std::condition_variable buf_cond_;                  // 버퍼 상태 알림용 CV
 std::atomic<bool> stopSync{false};                  // 동기화 스레드 종료 플래그
+
+// OCR thread related variables
+std::deque<std::vector<cv::Mat>> ocr_frame_queue_;  // OCR 처리용 프레임 큐
+std::mutex ocr_mutex_;                              // OCR 큐 접근 동기화 뮤텍스
+std::condition_variable ocr_cond_;                  // OCR 큐 상태 알림용 CV
+std::atomic<bool> stopOCR{false};                   // OCR 스레드 종료 플래그
 
 int ret = -1;
 int data_stream_index = -1;
@@ -39,6 +46,7 @@ const char* rtsp_url = RTSP_URL;
 
 VideoProcessor videoProcessor;
 MetadataParser metadataParser;
+TFOCR ocrProcessor;
 
 bool initialize() {
     /* ---- ---- initialize FFmpeg libraries ---- ---- */
@@ -46,9 +54,26 @@ bool initialize() {
     av_log_set_level(AV_LOG_VERBOSE); // Set log level for debugging
 
     // RTSP 연결 옵션 설정
-    av_dict_set(&options, "rtsp_transport", "tcp", 0);
+    av_dict_set(&options, "rtsp_transport", "udp", 0);
     av_dict_set(&options, "stimeout", "5000000", 0); // 5초 타임아웃
-    av_dict_set(&options, "max_delay", "500000", 0); // 최대 지연 500ms
+    av_dict_set(&options, "max_delay", "200000", 0); // 최대 지연 500ms
+    
+    // ffplay의 -fflags nobuffer 옵션
+    av_dict_set(&options, "fflags", "nobuffer", 0);
+    
+    // ffplay의 -flags low_delay 옵션  
+    av_dict_set(&options, "flags", "low_delay", 0);
+    
+    // ffplay의 -framedrop 옵션 (libavformat에서는 다른 방식으로 처리)
+    av_dict_set(&options, "buffer_size", "64000", 0);       // 작은 버퍼 크기
+    av_dict_set(&options, "reorder_queue_size", "1", 0);    // 재정렬 큐 최소화
+    av_dict_set(&options, "analyzeduration", "1000000", 0); // 1초 분석 시간
+    av_dict_set(&options, "probesize", "32768", 0);         // 작은 프로브 크기
+    
+    // 추가 저지연 옵션들
+    av_dict_set(&options, "flush_packets", "1", 0);         // 패킷 즉시 플러시
+    av_dict_set(&options, "sync", "ext", 0);
+    
 
     if (options){
         AVDictionaryEntry* entry = nullptr;
@@ -72,6 +97,7 @@ bool initialize() {
         return false;
     }
 
+
     ret = avformat_find_stream_info(formatContext, nullptr);
     if (ret < 0) {
         char error_buf[AV_ERROR_MAX_STRING_SIZE];
@@ -80,6 +106,12 @@ bool initialize() {
         avformat_close_input(&formatContext);
         return false; 
     }
+
+    formatContext->flags |= AVFMT_FLAG_NOBUFFER;           // 버퍼링 비활성화
+    formatContext->flags |= AVFMT_FLAG_FLUSH_PACKETS;      // 패킷 즉시 플러시
+    formatContext->max_delay = 200000;                     // 최대 지연 200ms
+    formatContext->max_analyze_duration = 1000000;         // 분석 시간 1초로 제한
+    formatContext->probesize = 32768;     
 
     for (unsigned int i=0; i < formatContext->nb_streams; i++) {
         AVStream *stream = formatContext->streams[i];
@@ -116,17 +148,57 @@ bool initialize() {
         avformat_close_input(&formatContext);
         return false;
     }
-    
 
+    ocrProcessor.load_ocr("model.tflite", "labels.names");
+    
     return true;
 }
 
+void ocr_thread() {
+    std::cout << "[HANWHA-ONVIF OCR] OCR processing thread started" << std::endl;
+    
+    while (!stopOCR) {
+        std::unique_lock<std::mutex> lock(ocr_mutex_);
+        
+        // 프레임이 있거나 종료 신호까지 대기
+        ocr_cond_.wait(lock, [] {
+            return stopOCR || !ocr_frame_queue_.empty();
+        });
+        
+        if (stopOCR && ocr_frame_queue_.empty()) break;
+        
+        while (!ocr_frame_queue_.empty()) {
+            std::vector<cv::Mat> frames = ocr_frame_queue_.front();
+            ocr_frame_queue_.pop_front();
+            lock.unlock();
+            
+            // OCR 처리 수행
+            for (size_t i = 0; i < frames.size(); ++i) {
+                cv::imwrite("ocr_output_" + std::to_string(i) + ".jpg", frames[i]);
+                try {
+                    std::string ocr_result = ocrProcessor.run_ocr(frames[i]);
+                    if (!ocr_result.empty()) {
+                        std::cout << "[HANWHA-ONVIF OCR] Frame " << i << " OCR Result: " << ocr_result << std::endl;
+                    } else {
+                        std::cout << "[HANWHA-ONVIF OCR] Frame " << i << " OCR Result: No text detected" << std::endl;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "[HANWHA-ONVIF OCR] Exception in OCR processing: " << e.what() << std::endl;
+                }
+            }
+            lock.lock();
+        }
+    }
+    
+    std::cout << "[HANWHA-ONVIF OCR] OCR processing thread terminated" << std::endl;
+}
+
 void sync_thread() {
-    usleep(300000);
+    usleep(200000);
     std::cout << "[HANWHA-ONVIF SYNC] Synchronization thread started" << std::endl;
     
     auto last_data_time = std::chrono::steady_clock::now();
-    const auto DATA_TIMEOUT = std::chrono::seconds(2); // 2초 타임아웃
+    const auto DATA_TIMEOUT = std::chrono::seconds(1); // 1초 타임아웃
     
     while(!stopSync) {
         std::unique_lock<std::mutex> lock(buf_mutex_);
@@ -156,19 +228,25 @@ void sync_thread() {
                     OnvifMeta dMeta = d_buf_.front();  d_buf_.pop_front();
                     lock.unlock();
 
-                    std::cout << "[HANWHA-ONVIF SYNC] Processing synced packets (Video PTS: " 
+                    std::cout << "[HANWHA-ONVIF SYNC] Synced Pakcet (Video PTS: " 
                               << video_pts << ", Data PTS: " << data_pts << ", Objects: " << dMeta.objects.size() << ")" << std::endl;
 
-                    /* Synced Packet Process! */
                     std::vector<Object> result = dMeta.objects;
                     
                     try {
-                        cv::Mat processed_frame = videoProcessor.fetchFrame(vPkt, result);
+                        std::vector<cv::Mat> processed_frame = videoProcessor.fetchFrames(vPkt, result);
                         if (processed_frame.empty()) {
                             std::cerr << "[HANWHA-ONVIF SYNC] Warning: Empty frame returned" << std::endl;
                         } else {
-                            std::cout << "[HANWHA-ONVIF SYNC] Frame processed successfully (" 
-                                      << processed_frame.cols << "x" << processed_frame.rows << ")" << std::endl;
+                            // OCR 스레드로 프레임 전송
+                            {
+                                std::lock_guard<std::mutex> ocr_lock(ocr_mutex_);
+                                ocr_frame_queue_.push_back(processed_frame);
+                                if (ocr_frame_queue_.size() > 10) { // 큐 크기 제한
+                                    ocr_frame_queue_.pop_front();
+                                }
+                            }
+                            ocr_cond_.notify_one();
                         }
                     } catch (const std::exception& e) {
                         std::cerr << "[HANWHA-ONVIF SYNC] Exception in video processing: " << e.what() << std::endl;
@@ -179,12 +257,12 @@ void sync_thread() {
                     lock.lock();
                 } else if (video_pts < data_pts) {
                     // 비디오 PTS가 더 작으면 비디오 드롭
-                    std::cout << "[HANWHA-ONVIF SYNC] Dropping video packet (PTS: " << video_pts << ")" << std::endl;
+                    std::cout << "[HANWHA-ONVIF SYNC] vPTS is smaller than dPTS : Dropping video packet (PTS: " << video_pts << ")" << std::endl;
                     av_packet_free(&v_buf_.front());
                     v_buf_.pop_front();
                 } else {
                     // 데이터 PTS가 더 작으면 데이터 드롭
-                    std::cout << "[HANWHA-ONVIF SYNC] Dropping data packet (PTS: " << data_pts << ")" << std::endl;
+                    std::cout << "[HANWHA-ONVIF SYNC] dPTS is smaller than vPTS : Dropping data packet (PTS: " << data_pts << ")" << std::endl;
                     d_buf_.pop_front();
                     last_data_time = current_time;
                 }
@@ -201,12 +279,21 @@ void sync_thread() {
                 std::vector<Object> empty_result; // 빈 객체 리스트
                 
                 try {
-                    cv::Mat processed_frame = videoProcessor.fetchFrame(vPkt, empty_result);
+                    std::vector<cv::Mat> processed_frame = videoProcessor.fetchFrames(vPkt, empty_result);
                     if (processed_frame.empty()) {
                         std::cerr << "[HANWHA-ONVIF SYNC] Warning: Empty frame returned (video-only)" << std::endl;
                     } else {
+                        // OCR 스레드로 프레임 전송
+                        {
+                            std::lock_guard<std::mutex> ocr_lock(ocr_mutex_);
+                            ocr_frame_queue_.push_back(processed_frame);
+                            if (ocr_frame_queue_.size() > 10) { // 큐 크기 제한
+                                ocr_frame_queue_.pop_front();
+                            }
+                        }
+                        ocr_cond_.notify_one();
                         std::cout << "[HANWHA-ONVIF SYNC] Video-only frame processed successfully (" 
-                                  << processed_frame.cols << "x" << processed_frame.rows << ")" << std::endl;
+                                  << processed_frame.size() << " frames)" << std::endl;
                     }
                 } catch (const std::exception& e) {
                     std::cerr << "[HANWHA-ONVIF SYNC] Exception in video-only processing: " << e.what() << std::endl;
@@ -223,8 +310,6 @@ void sync_thread() {
     std::cout << "[HANWHA-ONVIF SYNC] Synchronization thread terminated" << std::endl;
 }
 
-
-
 int main() {
 
     if (!initialize()) {
@@ -233,6 +318,7 @@ int main() {
     }
 
     std::thread syncThread(sync_thread); // Start synchronization thread
+    std::thread ocrThread(ocr_thread);   // Start OCR processing thread
 
     // Main loop to read packets
     int read_ret;
@@ -244,6 +330,8 @@ int main() {
         
         // 10초마다 상태 로그 출력
         auto current_time = std::chrono::steady_clock::now();
+        bool should_drop_frame = false;
+
         if (std::chrono::duration_cast<std::chrono::seconds>(current_time - last_log_time).count() >= 10) {
             std::lock_guard<std::mutex> status_lock(buf_mutex_);
             std::cout << "[HANWHA-ONVIF MAIN] Processed " << packet_count << " packets. "
@@ -301,8 +389,11 @@ int main() {
     }
 
     stopSync = true;                         // 동기화 스레드 종료 플래그 설정
+    stopOCR = true;                          // OCR 스레드 종료 플래그 설정
     buf_cond_.notify_all();                  // 대기 중이면 깨우기
+    ocr_cond_.notify_all();                  // OCR 스레드도 깨우기
     syncThread.join();                       // 스레드 종료 대기
+    ocrThread.join();                        // OCR 스레드 종료 대기
 
     {
         std::lock_guard<std::mutex> lock(buf_mutex_);
@@ -313,6 +404,12 @@ int main() {
         while (!d_buf_.empty()) {
             d_buf_.pop_front();  // OnvifMeta는 자동으로 소멸됨
         }
+    }
+
+    // OCR 큐 정리
+    {
+        std::lock_guard<std::mutex> ocr_lock(ocr_mutex_);
+        ocr_frame_queue_.clear();
     }
 
     avformat_close_input(&formatContext);    // 포맷 컨텍스트 정리

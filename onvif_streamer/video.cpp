@@ -59,49 +59,30 @@ bool VideoProcessor::initialize(AVCodecParameters* codecpar) {
     return true;
 }
 
-void VideoProcessor::drawDetectionBoxes(cv::Mat& image, std::vector<Object>& objects) {
-    
-    
-    for (const auto& obj : objects) {
-        // Scale bounding box coordinates to current resolution
-        int x1 = static_cast<int>((obj.boundingBox.left / ORIGINAL_WIDTH) * width_);
-        int y1 = static_cast<int>((obj.boundingBox.top / ORIGINAL_HEIGHT) * height_);
-        int x2 = static_cast<int>((obj.boundingBox.right / ORIGINAL_WIDTH) * width_);
-        int y2 = static_cast<int>((obj.boundingBox.bottom / ORIGINAL_HEIGHT) * height_);
-        
-        // Ensure coordinates are within image bounds
-        x1 = std::max(0, std::min(x1, width_ - 1));
-        y1 = std::max(0, std::min(y1, height_ - 1));
-        x2 = std::max(0, std::min(x2, width_ - 1));
-        y2 = std::max(0, std::min(y2, height_ - 1));
-        
-        // Draw bounding box
-        cv::Scalar color(0, 255, 0); // Green color
-        int thickness = 2;
-        cv::rectangle(image, cv::Point(x1, y1), cv::Point(x2, y2), color, thickness);
-        
-        // Draw object information text
-        std::string label = obj.typeName + " ID:" + std::to_string(obj.objectId) + 
-                           " (" + std::to_string(static_cast<int>(obj.confidence * 100)) + "%)";
-        
-        int baseline = 0;
-        cv::Size textSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
-        
-        // Draw text background
-        cv::rectangle(image, 
-                     cv::Point(x1, y1 - textSize.height - 5),
-                     cv::Point(x1 + textSize.width, y1),
-                     color, -1);
-        
-        // Draw text
-        cv::putText(image, label, cv::Point(x1, y1 - 5), 
-                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
-        
-        // Draw center point (also needs scaling)
-        int centerX = static_cast<int>((obj.centerOfGravity.x / ORIGINAL_WIDTH) * width_);
-        int centerY = static_cast<int>((obj.centerOfGravity.y / ORIGINAL_HEIGHT) * height_);
-        cv::circle(image, cv::Point(centerX, centerY), 3, cv::Scalar(0, 0, 255), -1); // Red dot
+std::vector<cv::Mat> VideoProcessor::fetchFrames(AVPacket* pkt, std::vector<Object>& objects) {
+    if (!initialized_) {
+        std::cerr << "VideoProcessor not initialized" << std::endl;
+        return cv::Mat();
     }
+
+    if (!pkt) {
+        std::cerr << "Null packet received" << std::endl;
+        return cv::Mat();
+    }
+
+    // Process the packet to get the frame
+    if (!process_packet(pkt)) {
+        std::cerr << "Failed to process packet" << std::endl;
+        return cv::Mat();
+    }
+
+    // Process the frame with detection boxes
+    if (!process_frame(objects)) {
+        std::cerr << "Failed to process frame" << std::endl;
+        return cv::Mat();
+    }
+    
+    return cropped_images_; // Return the processed image
 }
 
 // receive packet and process it to cv::Mat image_
@@ -146,43 +127,46 @@ bool VideoProcessor::process_frame(std::vector<Object>& objects) {
     }
     
     // Draw detection boxes on the image
-    drawDetectionBoxes(image_, objects);
-    
-    // GUI 디스플레이 제거 (서버 환경에서 불필요)
-    // cv::imshow("Processed Frame", image_);
-    // cv::waitKey(1); // Display the frame for a brief moment
-    
-    // Optional: Save frame to file for debugging
-    // cv::imwrite("debug_frame.jpg", image_);
-    
-    // Crop detection boxes
-    // cropDetectionBoxes(image_, objects);
+    cropDetectionBoxes(image_, objects);
 
     return true;
 }
-
-cv::Mat VideoProcessor::fetchFrame(AVPacket* pkt, std::vector<Object>& objects) {
-    if (!initialized_) {
-        std::cerr << "VideoProcessor not initialized" << std::endl;
-        return cv::Mat();
+void VideoProcessor::cropDetectionBoxes(cv::Mat& image, std::vector<Object>& objects, cv::Point2f user_point) {
+    
+    std::vector<cv::Mat> cropped_images;
+    for (const auto& obj : objects) {
+        // Scale bounding box coordinates to current resolution
+        int x1 = static_cast<int>((obj.boundingBox.left / ORIGINAL_WIDTH) * width_);
+        int y1 = static_cast<int>((obj.boundingBox.top / ORIGINAL_HEIGHT) * height_);
+        int x2 = static_cast<int>((obj.boundingBox.right / ORIGINAL_WIDTH) * width_);
+        int y2 = static_cast<int>((obj.boundingBox.bottom / ORIGINAL_HEIGHT) * height_);
+        
+        // Ensure coordinates are within image bounds
+        x1 = std::max(0, std::min(x1, width_ - 1));
+        y1 = std::max(0, std::min(y1, height_ - 1));
+        x2 = std::max(0, std::min(x2, width_ - 1));
+        y2 = std::max(0, std::min(y2, height_ - 1));
+        
+        // Add 5px margin around the bounding box
+        const int margin = 5;
+        x1 = std::max(0, x1 - margin);
+        y1 = std::max(0, y1 - margin);
+        x2 = std::min(width_ - 1, x2 + margin);
+        y2 = std::min(height_ - 1, y2 + margin);
+        
+        // Ensure valid rectangle dimensions
+        if (x2 <= x1 || y2 <= y1) {
+            continue; // Skip invalid rectangles
+        }
+        
+        // Crop the object from the image
+        cv::Rect crop_rect(x1, y1, x2 - x1, y2 - y1);
+        cropped_images.push_back(image(crop_rect));
     }
 
-    if (!pkt) {
-        std::cerr << "Null packet received" << std::endl;
-        return cv::Mat();
-    }
-
-    // Process the packet to get the frame
-    if (!process_packet(pkt)) {
-        std::cerr << "Failed to process packet" << std::endl;
-        return cv::Mat();
-    }
-
-    // Process the frame with detection boxes
-    if (!process_frame(objects)) {
-        std::cerr << "Failed to process frame" << std::endl;
-        return cv::Mat();
-    }
-
-    return image_; // Return the processed image
+    cropped_images_ = cropped_images; // Store the cropped images
+    
 }
+
+
+

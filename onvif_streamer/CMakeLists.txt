@@ -31,7 +31,7 @@ include_directories(${TFLITE_INCLUDE_DIR})
 # OpenCV
 find_package(OpenCV REQUIRED)
 
-add_executable(onvif_streamer main.cpp video.cpp metadata.cpp)
+add_executable(onvif_streamer main.cpp ocr.cpp video.cpp metadata.cpp)
 
 # include paths
 target_include_directories(onvif_streamer PRIVATE 
