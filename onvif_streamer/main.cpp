@@ -19,8 +19,8 @@ extern "C" {
 #include "video.hpp"
 
 #define RTSP_URL "rtsp://192.168.0.64/profile2/media.smp"
-#define MAX_PACKET_BUFFER 100
-#define PTS_TOLERANCE 2000 // 100ms tolerance for PTS synchronization
+#define MAX_PACKET_BUFFER 50
+#define PTS_TOLERANCE 2500 // 100ms tolerance for PTS synchronization
 
 AVFormatContext* formatContext = nullptr;
 AVPacket pkt;

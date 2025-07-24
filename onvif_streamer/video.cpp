@@ -149,8 +149,8 @@ bool VideoProcessor::process_frame(std::vector<Object>& objects) {
     drawDetectionBoxes(image_, objects);
     
     // GUI 디스플레이 제거 (서버 환경에서 불필요)
-    cv::imshow("Processed Frame", image_);
-    cv::waitKey(1); // Display the frame for a brief moment
+    // cv::imshow("Processed Frame", image_);
+    // cv::waitKey(1); // Display the frame for a brief moment
     
     // Optional: Save frame to file for debugging
     // cv::imwrite("debug_frame.jpg", image_);

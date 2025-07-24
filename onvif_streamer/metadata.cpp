@@ -6,20 +6,9 @@ OnvifMeta MetadataParser::fetchMetadata(AVPacket* pkt) {
     OnvifMeta meta = {0, 0, {}};  // 기본값으로 초기화
     
     if (!pkt || !pkt->data || pkt->size <= 0) {
-        std::cerr << "Invalid packet data" << std::endl;
+        std::cerr << "[HANWHA-ONVIF META] Invalid packet data" << std::endl;
         return meta;
     }
-
-    // 원시 데이터 로깅 (처음 100바이트만)
-    std::cout << "Raw metadata packet (size: " << pkt->size << "): ";
-    for (int i = 0; i < std::min(100, pkt->size); i++) {
-        if (pkt->data[i] >= 32 && pkt->data[i] <= 126) {
-            std::cout << (char)pkt->data[i];
-        } else {
-            std::cout << ".";
-        }
-    }
-    std::cout << std::endl;
 
     // Process the packet data
     process_packet(pkt->data, pkt->size, pkt->pts, pkt->dts);
@@ -28,8 +17,6 @@ OnvifMeta MetadataParser::fetchMetadata(AVPacket* pkt) {
     meta.pts = pkt->pts;
     meta.dts = pkt->dts;
     meta.objects = result_;
-    std::cout << "Fetch Metadata: PTS = " << meta.pts << ", DTS = " << meta.dts 
-              << ", Objects found: " << meta.objects.size() << std::endl;
 
     // Return the results
     return meta;
@@ -128,7 +115,7 @@ void MetadataParser::process_packet(const uint8_t* data, int size, int64_t pts, 
     pts_buffer_= pts;
 
     if (!process_buffer()) {
-        std::cerr << "Failed to process metadata buffer" << std::endl;
+        std::cerr << "[HANWHA-ONVIF META] Failed to process metadata buffer" << std::endl;
 
     } 
     
@@ -144,13 +131,13 @@ bool MetadataParser::process_buffer() {
         // find <tt:MetadataStream start tag
         size_t start_pos = xml_buffer_.find("<tt:MetadataStream", pos);
         if (start_pos == std::string::npos) {
-            std::cerr << "No MetadataStream start tag found" << std::endl;
+            std::cerr << "[HANWHA-ONVIF META] No MetadataStream start tag found" << std::endl;
             break;
         }
         
         size_t tag_end = xml_buffer_.find(">", start_pos); // find '>'
         if (tag_end == std::string::npos) {
-            std::cerr << "No closing tag found for MetadataStream" << std::endl;
+            std::cerr << "[HANWHA-ONVIF META] No closing tag found for MetadataStream" << std::endl;
             break;
         }
         
@@ -158,20 +145,20 @@ bool MetadataParser::process_buffer() {
         if (start_tag.find("/>") != std::string::npos) {
             fetched_buffer_.push_back(xml_declaration + start_tag);
             pos = tag_end + 1;
-            std::cout << "Found empty MetadataStream tag, added to fetched buffer" << std::endl;
+            std::cout << "[HANWHA-ONVIF META] Found empty MetadataStream tag, added to fetched buffer" << std::endl;
             continue;
         }
 
         // find </tt:MetadataStream end tag
         size_t end_pos = xml_buffer_.find("</tt:MetadataStream>", tag_end);
         if (end_pos == std::string::npos) {
-            std::cerr << "No MetadataStream end tag found" << std::endl;
+            std::cerr << "[HANWHA-ONVIF META] No MetadataStream end tag found" << std::endl;
             break; // end tag not found, wait for more data
         } else {
             size_t element_end = end_pos + std::string("</tt:MetadataStream>").length();
             std::string complete_element = xml_buffer_.substr(start_pos, element_end - start_pos);
             fetched_buffer_.push_back(xml_declaration + complete_element);
-            std::cout << "Found complete MetadataStream element, added to fetched buffer" << std::endl;
+            std::cout << "[HANWHA-ONVIF META] Found complete MetadataStream element, added to fetched buffer" << std::endl;
 
             xml_buffer_.erase(0, element_end); // remove processed element from buffer
             pos = 0; // reset position for next search
@@ -186,14 +173,14 @@ bool MetadataParser::process_buffer() {
         if (par_result == XML_SUCCESS) {
             XMLElement* root = doc.RootElement();
             if (!root) {
-                std::cerr << "No root element found" << std::endl;
+                std::cerr << "[HANWHA-ONVIF META] No root element found" << std::endl;
                 return false;
             }
             
             // 자식 요소가 있는지 확인
             bool hasChildren = root->FirstChildElement() != nullptr;
             if (!hasChildren) {
-                std::cout << "Empty metadata document (no child elements)" << std::endl;
+                std::cout << "[HANWHA-ONVIF META] Empty metadata document (no child elements)" << std::endl;
                 return false;
             }
             
@@ -202,15 +189,15 @@ bool MetadataParser::process_buffer() {
             // 객체 정보 추출 - 필터링을 위해 "LicensePlate"를 인자로 전달
             std::vector<Object> detections = extractObj(root, whatIWant);
             if (!detections.empty()) {
-                std::cout << "Detected " << detections.size() << " LicensePlate(s):" << std::endl;
+                std::cout << "[HANWHA-ONVIF META] Detected " << detections.size() << " LicensePlate(s):" << std::endl;
                 result_ = detections; // Store the result_ in the provided vector
             } else {
-                std::cout << "No "<< whatIWant << " objects found" << std::endl;
+                std::cout << "[HANWHA-ONVIF META] No "<< whatIWant << " objects found" << std::endl;
                 result_.clear(); // Clear the results if no detections found
             }
 
         } else {
-            std::cerr << "Failed to parse XML: " << doc.ErrorStr() << std::endl;
+            std::cerr << "[HANWHA-ONVIF META] Failed to parse XML: " << doc.ErrorStr() << std::endl;
         }
     }
     
