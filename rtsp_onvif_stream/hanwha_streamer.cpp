@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
+#include "../common/bus_sequence.hpp"
 
 HanwhaStreamer::HanwhaStreamer() :
       output_format_context_(nullptr), output_stream_(nullptr), output_codec_context_(nullptr),
@@ -34,21 +35,17 @@ void HanwhaStreamer::ocr_worker() {
 
         // Serialize and write to shared memory (only ocr_text)
         if (shm_ptr_ != nullptr) {
-            std::string serialized_data;
-            
-            // Serialize only ocr_text maintaining vector order
-            serialized_data += std::to_string(cropped_objects.size()) + "\n";
-            for (const auto& obj : cropped_objects) {
-                serialized_data += obj.ocr_text + "\n";
+            BusSequence* seq = static_cast<BusSequence*>(shm_ptr_);
+            std::memset(seq, 0, sizeof(BusSequence));  // 초기화
+
+            size_t count = std::min(cropped_objects.size(), static_cast<size_t>(MAX_BUSES));
+            for (size_t i = 0; i < count; ++i) {
+                strncpy(seq->plates[i], cropped_objects[i].ocr_text.c_str(), MAX_PLATE_LENGTH - 1);
             }
-            
-            // Write to shared memory
-            size_t data_size = std::min(serialized_data.size(), shm_size_ - 1);
-            std::memcpy(shm_ptr_, serialized_data.c_str(), data_size);
-            static_cast<char*>(shm_ptr_)[data_size] = '\0';
-            
-            std::cout << "Written " << cropped_objects.size() << " OCR texts (" << data_size << " bytes) to shared memory" << std::endl;
+
+            std::cout << "Written " << count << " OCR texts to shared memory (BusSequence format)" << std::endl;
         }
+
     }
 }
 

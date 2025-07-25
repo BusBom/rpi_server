@@ -18,7 +18,6 @@ using json = nlohmann::json;
 
 struct ROIData {
     std::vector<std::vector<cv::Point>> stop_rois;
-    std::vector<std::vector<cv::Point>> wait_rois;
 };
 
 // Convert JSON array of [[x, y], [x, y], ...] to cv::Point vector
@@ -67,24 +66,7 @@ std::string serializeROIData(const ROIData& roi_data) {
             serialized.append(reinterpret_cast<const char*>(&y), sizeof(y));
         }
     }
-    
-    // Serialize wait_rois count
-    uint32_t wait_count = roi_data.wait_rois.size();
-    serialized.append(reinterpret_cast<const char*>(&wait_count), sizeof(wait_count));
-    
-    // Serialize each wait_roi
-    for (const auto& roi : roi_data.wait_rois) {
-        uint32_t point_count = roi.size();
-        serialized.append(reinterpret_cast<const char*>(&point_count), sizeof(point_count));
-        
-        for (const auto& point : roi) {
-            int32_t x = point.x;
-            int32_t y = point.y;
-            serialized.append(reinterpret_cast<const char*>(&x), sizeof(x));
-            serialized.append(reinterpret_cast<const char*>(&y), sizeof(y));
-        }
-    }
-    
+    // wait_rois 관련 코드 삭제
     return serialized;
 }
 
@@ -149,10 +131,10 @@ int main() {
                 fprintf(stderr, "[CGI DEBUG] JSON parsed successfully\n");
                 
                 // 필수 필드 확인
-                if (!j.contains("stop_rois") || !j.contains("wait_rois")) {
+                if (!j.contains("stop_rois")) {
                     fprintf(stderr, "[CGI ERROR] Missing required fields\n");
                     json err = {
-                        {"error", "Missing required fields: stop_rois, wait_rois"},
+                        {"error", "Missing required fields: stop_rois"},
                         {"status", "400 Bad Request"}
                     };
                     printf("%s\n", err.dump().c_str());
@@ -183,30 +165,7 @@ int main() {
                     }
                 }
                 
-                // wait_rois 파싱
-                if (j["wait_rois"].is_array()) {
-                    fprintf(stderr, "[CGI DEBUG] wait_rois array size: %zu\n", j["wait_rois"].size());
-                    for (size_t i = 0; i < j["wait_rois"].size(); ++i) {
-                        const auto& roi = j["wait_rois"][i];
-                        fprintf(stderr, "[CGI DEBUG] Processing wait_roi %zu\n", i);
-                        if (roi.is_array()) {
-                            fprintf(stderr, "[CGI DEBUG] wait_roi %zu has %zu points\n", i, roi.size());
-                            try {
-                                roi_data.wait_rois.push_back(convertPointsFromJson(roi));
-                                fprintf(stderr, "[CGI DEBUG] wait_roi %zu converted successfully\n", i);
-                            } catch (const std::exception& e) {
-                                fprintf(stderr, "[CGI ERROR] Error converting wait_roi %zu: %s\n", i, e.what());
-                                fprintf(stderr, "[CGI DEBUG] wait_roi %zu content: %s\n", i, roi.dump().c_str());
-                                throw;
-                            }
-                        } else {
-                            fprintf(stderr, "[CGI ERROR] wait_roi %zu is not an array\n", i);
-                        }
-                    }
-                }
-                
-                fprintf(stderr, "[CGI DEBUG] ROI data parsed: %zu stop_rois, %zu wait_rois\n", 
-                        roi_data.stop_rois.size(), roi_data.wait_rois.size());
+                fprintf(stderr, "[CGI DEBUG] ROI data parsed: %zu stop_rois\n", roi_data.stop_rois.size());
                 
                 // ROI 데이터를 바이너리로 직렬화
                 std::string serialized_data = serializeROIData(roi_data);
@@ -220,8 +179,7 @@ int main() {
                     json response = {
                         {"status", "success"},
                         {"message", "ROI data sent successfully"},
-                        {"stop_rois_count", roi_data.stop_rois.size()},
-                        {"wait_rois_count", roi_data.wait_rois.size()}
+                        {"stop_rois_count", roi_data.stop_rois.size()}
                     };
                     printf("%s\n", response.dump().c_str());
                 } else {
