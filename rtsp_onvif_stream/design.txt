@@ -1,0 +1,21 @@
+// input    : RTSP stream
+// output   : 
+hanwha_stream
+	|-- class hanwhaStreamer
+	|	\\ connect to rtsp server
+	|	\\ find data, video stream
+	|		\\ loop 
+	|		   ( send packet to metadataProcessor
+	|		     send packet to videoProcessor )
+	|	\\ combine metadata + video
+    |---0-- class videoProcessor
+		|	\\ receive AVPacket, dts, metadata
+		|	\\ return croppedFrames w. metadata {struct Object}
+		0-- class metadataProcessor
+		|	\\ receive packet data
+		|	\\ process through
+		|	\\ use getResult to return Object data
+
+Lp_detect
+	\-- class KrLPR
+	\-- class 
