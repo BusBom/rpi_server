@@ -1,6 +1,6 @@
 
 
-TARGET = capture
+TARGET = stop-status
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
