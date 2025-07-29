@@ -1,6 +1,7 @@
 
 
-TARGET = stop-status
+# Default target if not specified
+TARGET ?= stop-status
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
@@ -26,22 +27,12 @@ install-cgi: build
 	sudo cp build/$(BIN) $(CGI_DIR)/$(BIN)
 	sudo chmod +x $(CGI_DIR)/$(BIN)
 
-install-conf: $(CONF_FILE)
-	@echo "Copying $(CONF_FILE) to $(SITES_AVAILABLE)..."
-	sudo cp $(CONF_FILE) $(SITES_AVAILABLE)/
-	@echo "Linking to $(SITES_ENABLED)..."
-	sudo ln -sf $(SITES_AVAILABLE)/$(CONF_FILE) $(SITES_ENABLED)/$(CONF_FILE)
-	@echo "Reloading nginx..."
-	sudo nginx -s reload
-	@echo "Done!"
-
-
 reload-nginx:
 	@echo "Reloading nginx..."
 	sudo nginx -s reload
 
 # 전체 배포 한 번에
-deploy: install-cgi install-conf reload-nginx
+deploy: install-cgi reload-nginx
 	@echo "======= ALL DONE! ======="
 
 clean:
