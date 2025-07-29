@@ -12,7 +12,12 @@ int main() {
         std::vector<int> stopStatus = fetchStopStatusFromCGI();
 
         auto matches = matchBusToPlatforms(sequence, stopStatus);
+
+        // 콘솔 출력 (디버깅용)
         printResultToStdout(matches);
+
+        // UART 드라이버로 결과 전송
+        writeResultToDevice(matches);
 
         sleep(1);
     }

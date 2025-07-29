@@ -41,6 +41,7 @@ void HanwhaStreamer::ocr_worker() {
             size_t count = std::min(cropped_objects.size(), static_cast<size_t>(MAX_BUSES));
             for (size_t i = 0; i < count; ++i) {
                 strncpy(seq->plates[i], cropped_objects[i].ocr_text.c_str(), MAX_PLATE_LENGTH - 1);
+                seq->plates[i][MAX_PLATE_LENGTH - 1] = '\0';
             }
 
             std::cout << "Written " << count << " OCR texts to shared memory (BusSequence format)" << std::endl;
@@ -235,7 +236,7 @@ HanwhaStreamer::~HanwhaStreamer() {
     // Cleanup shared memory
     if (shm_ptr_ != nullptr) {
         munmap(shm_ptr_, shm_size_);
-        shm_unlink(shm_name_);
+        //shm_unlink(shm_name_);
     }
 
     if (formatContext) {

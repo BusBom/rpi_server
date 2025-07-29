@@ -1,6 +1,6 @@
 # 컴파일러 및 옵션
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Ishm_reader -Ibutt_matcher -Idisplay_writer -I../../common -I/home/cty0613/rpi_server/common
+CXXFLAGS = -std=c++17 -Wall -g -Ishm_reader -Ibutt_matcher -Idisplay_writer -I../../common -I/home/cty0613/rpi_server/common
 
 LDFLAGS = -lrt -lcurl
 

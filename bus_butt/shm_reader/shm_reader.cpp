@@ -38,8 +38,11 @@ std::vector<std::string> readSequenceFromSHM() {
 
     BusSequence* seq = static_cast<BusSequence*>(ptr);
     for (int i = 0; i < MAX_BUSES; ++i) {
-        if (strlen(seq->plates[i]) == 0) break;
-        result.emplace_back(seq->plates[i]);
+        char plate[MAX_PLATE_LENGTH] = {0};
+        std::strncpy(plate, seq->plates[i], MAX_PLATE_LENGTH - 1);
+
+        if (plate[0] == '\0') break;  // 첫 글자 비었으면 종료
+        result.emplace_back(std::string(plate));
     }
 
     //  디버그
