@@ -4,6 +4,8 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/time.h>
 #include <libavutil/rational.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 }
 #include <tinyxml2.h>
 #include <iostream>
@@ -88,7 +90,7 @@ ThreadSafeQueue<AVFrame*> frame_queue;
 ThreadSafeQueue<MetadataResult> metadata_queue;
 
 // Queue for cropped frames
-ThreadSafeQueue< std::vector<cv::Mat> > cropped_frame_queue;
+ThreadSafeQueue< std::vector<AVFrame*> > cropped_frame_queue;
 
 // Atomics for thread control
 std::atomic<bool> run_threads{true};
@@ -155,7 +157,7 @@ void decode_thread(AVFormatContext* formatContext, int video_stream_index) {
     }
     
     // Enhanced decoding configuration for I/P frame reference handling
-    codec_context->thread_count = 4;
+    codec_context->thread_count = 0;
     codec_context->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
     codec_context->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     codec_context->err_recognition = AV_EF_CRCCHECK | AV_EF_BITSTREAM | AV_EF_BUFFER;
@@ -281,7 +283,7 @@ void render_frame_to_sdl(SDL_Renderer* renderer, SDL_Texture* texture, AVFrame* 
 void render_metadata_overlay(SDL_Renderer* renderer, const MetadataResult& metadata, int width, int height) {
     if (metadata.objects.empty()) return;
     
-    std::cout << "[RENDER] Rendering metadata overlay with " << metadata.objects.size() << " objects." << std::endl;
+    // std::cout << "[RENDER] Rendering metadata overlay with " << metadata.objects.size() << " objects." << std::endl;
     // Set color for bounding boxes (green)
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
     
@@ -316,8 +318,8 @@ void render_metadata_overlay(SDL_Renderer* renderer, const MetadataResult& metad
     }
 }
 
-std::vector<cv::Mat> render_metadata_crop_to_cv(AVFrame* frame, const MetadataResult& metadata, int width, int height, cv::Point2f reference_point = cv::Point2f(-1, -1)) {
-    std::vector<cv::Mat> cropped_frames;
+std::vector<AVFrame*> render_metadata_crop_to_avframe(AVFrame* frame, const MetadataResult& metadata, int width, int height, cv::Point2f reference_point = cv::Point2f(-1, -1)) {
+    std::vector<AVFrame*> cropped_frames;
     
     if (metadata.objects.empty() || !frame) {
         return cropped_frames;
@@ -328,14 +330,9 @@ std::vector<cv::Mat> render_metadata_crop_to_cv(AVFrame* frame, const MetadataRe
         reference_point = cv::Point2f(width / 2.0f, height / 2.0f);
     }
     
-    // Convert AVFrame (YUV420P) to OpenCV Mat (BGR)
-    cv::Mat yuv_mat(height + height/2, width, CV_8UC1, frame->data[0]);
-    cv::Mat bgr_mat;
-    cv::cvtColor(yuv_mat, bgr_mat, cv::COLOR_YUV2BGR_I420);
-    
     // Structure to hold cropped frame and its distance
     struct CroppedFrameWithDistance {
-        cv::Mat frame;
+        AVFrame* frame;
         float distance;
     };
     
@@ -354,8 +351,8 @@ std::vector<cv::Mat> render_metadata_crop_to_cv(AVFrame* frame, const MetadataRe
         x2 = std::max(0, std::min(x2, width - 1));
         y2 = std::max(0, std::min(y2, height - 1));
 
-        // 5px bbox margin
-        const int margin = 8;
+        // Add margin
+        const int margin = 7;
         x1 = std::max(0, x1 - margin);
         y1 = std::max(0, y1 - margin);
         x2 = std::min(width - 1, x2 + margin);
@@ -366,15 +363,63 @@ std::vector<cv::Mat> render_metadata_crop_to_cv(AVFrame* frame, const MetadataRe
         int crop_height = y2 - y1;
         
         if (crop_width > 0 && crop_height > 0) {
-            // Create ROI (Region of Interest) and crop
-            cv::Rect crop_rect(x1, y1, crop_width, crop_height);
-            cv::Mat cropped_frame = bgr_mat(crop_rect).clone();
+            // Create new AVFrame for cropped region
+            AVFrame* cropped_frame = av_frame_alloc();
+            if (!cropped_frame) {
+                continue;
+            }
+            
+            cropped_frame->format = frame->format;
+            cropped_frame->width = crop_width;
+            cropped_frame->height = crop_height;
+            
+            if (av_frame_get_buffer(cropped_frame, 32) < 0) {
+                av_frame_free(&cropped_frame);
+                continue;
+            }
+            
+            // Copy YUV420P data manually
+            // Y plane
+            for (int y = 0; y < crop_height; y++) {
+                int src_y = y1 + y;
+                if (src_y < height) {
+                    uint8_t* src_line = frame->data[0] + src_y * frame->linesize[0] + x1;
+                    uint8_t* dst_line = cropped_frame->data[0] + y * cropped_frame->linesize[0];
+                    memcpy(dst_line, src_line, crop_width);
+                }
+            }
+            
+            // U plane (half resolution)
+            int uv_crop_width = crop_width / 2;
+            int uv_crop_height = crop_height / 2;
+            int uv_x1 = x1 / 2;
+            int uv_y1 = y1 / 2;
+            
+            for (int y = 0; y < uv_crop_height; y++) {
+                int src_y = uv_y1 + y;
+                if (src_y < height / 2) {
+                    uint8_t* src_line = frame->data[1] + src_y * frame->linesize[1] + uv_x1;
+                    uint8_t* dst_line = cropped_frame->data[1] + y * cropped_frame->linesize[1];
+                    memcpy(dst_line, src_line, uv_crop_width);
+                }
+            }
+            
+            // V plane (half resolution)
+            for (int y = 0; y < uv_crop_height; y++) {
+                int src_y = uv_y1 + y;
+                if (src_y < height / 2) {
+                    uint8_t* src_line = frame->data[2] + src_y * frame->linesize[2] + uv_x1;
+                    uint8_t* dst_line = cropped_frame->data[2] + y * cropped_frame->linesize[2];
+                    memcpy(dst_line, src_line, uv_crop_width);
+                }
+            }
             
             // Calculate center of gravity in pixel coordinates
             cv::Point2f center_of_gravity(obj.centerOfGravity.x * width, obj.centerOfGravity.y * height);
             
             // Calculate distance from reference point to center of gravity
-            float distance = cv::norm(reference_point - center_of_gravity);
+            float distance = std::sqrt(std::pow(reference_point.x - center_of_gravity.x, 2) + 
+                                     std::pow(reference_point.y - center_of_gravity.y, 2));
             
             // Store frame with its distance
             frames_with_distance.push_back({cropped_frame, distance});
@@ -438,7 +483,7 @@ void render_thread(AVFormatContext* formatContext, int video_stream_index) {
     
     // Frame timing variables (similar to ffplay)
     double frame_timer = av_gettime_relative() / 1000000.0;
-    double frame_last_delay = 0.02; // 25fps default
+    double frame_last_delay = 0.04; // 25fps default
     const double AV_SYNC_THRESHOLD_MIN = 0.04;
     const double AV_SYNC_THRESHOLD_MAX = 0.1;
     const double AV_SYNC_FRAMEDUP_THRESHOLD = 0.1;
@@ -483,7 +528,7 @@ void render_thread(AVFormatContext* formatContext, int video_stream_index) {
                     });
                 
                 double metadata_pts = best_match->pts * av_q2d(time_base);
-                if (std::abs(metadata_pts - frame_pts) < 0.05) { // 100ms tolerance
+                if (std::abs(metadata_pts - frame_pts) < 0.1) { // 50ms tolerance
                     current_metadata = *best_match;
                     metadata_found = true;
                 }
@@ -534,7 +579,7 @@ void render_thread(AVFormatContext* formatContext, int video_stream_index) {
                 // render_metadata_overlay(renderer, current_metadata, width, height);
 
                 // Get cropped frames from metadata bounding boxes
-                std::vector<cv::Mat> cropped_frames = render_metadata_crop_to_cv(frame, current_metadata, width, height, custom_point);
+                std::vector<AVFrame*> cropped_frames = render_metadata_crop_to_avframe(frame, current_metadata, width, height, custom_point);
                 cropped_frame_queue.push(cropped_frames); // Vector is already copied by value
             }
             
@@ -586,24 +631,60 @@ void ocr_thread() {
     int frame_counter = 0;
     
     while(run_threads) {
-        std::vector<cv::Mat> cropped_frames;
+        std::vector<AVFrame*> cropped_frames;
         std::vector<std::string> ocr_results;
         if (cropped_frame_queue.try_pop(cropped_frames)) {
             if (!cropped_frames.empty()) {
-                for (const auto& cropped_frame : cropped_frames) {
-                    TFOCR::OCRResult result = ocrProcessor.run_ocr(cropped_frame);
-                    if (result.label.empty()) {
-                        // std::cout << "[OCR] Low confidence or empty label, skipping" << std::endl;
-                        continue;
-                    }
-                    // Check if the result already exists in ocr_results (no duplicates allowed)
-                    if (std::find(ocr_results.begin(), ocr_results.end(), result.label) == ocr_results.end()) {
-                        std::cout << "[OCR] Detected license plate: " << result.label << " conf : " << result.confidence << std::endl;
-                        ocr_results.push_back(result.label);
-                    } else {
-                        std::cout << "[OCR] Duplicate license plate skipped: " << result.label << " conf : " << result.confidence << std::endl;
+                for (AVFrame* cropped_frame : cropped_frames) {
+                    // Convert AVFrame to cv::Mat for OCR processing
+                    cv::Mat bgr_mat;
+                    
+                    // Create SwsContext for YUV420P to BGR conversion
+                    SwsContext* sws_ctx = sws_getContext(
+                        cropped_frame->width, cropped_frame->height, AV_PIX_FMT_YUV420P,
+                        cropped_frame->width, cropped_frame->height, AV_PIX_FMT_BGR24,
+                        SWS_BILINEAR, nullptr, nullptr, nullptr
+                    );
+                    
+                    if (sws_ctx) {
+                        // Allocate BGR frame
+                        AVFrame* bgr_frame = av_frame_alloc();
+                        if (bgr_frame) {
+                            bgr_frame->format = AV_PIX_FMT_BGR24;
+                            bgr_frame->width = cropped_frame->width;
+                            bgr_frame->height = cropped_frame->height;
+                            
+                            if (av_frame_get_buffer(bgr_frame, 32) == 0) {
+                                // Convert YUV420P to BGR24
+                                sws_scale(sws_ctx, cropped_frame->data, cropped_frame->linesize, 
+                                         0, cropped_frame->height, bgr_frame->data, bgr_frame->linesize);
+                                
+                                // Create OpenCV Mat from BGR frame data
+                                bgr_mat = cv::Mat(cropped_frame->height, cropped_frame->width, CV_8UC3, 
+                                                bgr_frame->data[0], bgr_frame->linesize[0]).clone();
+                            }
+                            av_frame_free(&bgr_frame);
+                        }
+                        sws_freeContext(sws_ctx);
                     }
                     
+                    // Free the cropped AVFrame
+                    av_frame_free(&cropped_frame);
+                    
+                    if (!bgr_mat.empty()) {
+                        TFOCR::OCRResult result = ocrProcessor.run_ocr(bgr_mat);
+                        if (result.label.empty()) {
+                            // std::cout << "[OCR] Low confidence or empty label, skipping" << std::endl;
+                            continue;
+                        }
+                        // Check if the result already exists in ocr_results (no duplicates allowed)
+                        if (std::find(ocr_results.begin(), ocr_results.end(), result.label) == ocr_results.end()) {
+                            std::cout << "[OCR] Detected license plate: " << result.label << " conf : " << result.confidence << std::endl;
+                            ocr_results.push_back(result.label);
+                        } else {
+                            std::cout << "[OCR] Duplicate license plate skipped: " << result.label << " conf : " << result.confidence << std::endl;
+                        }
+                    }
                 }
                 frame_counter++;
             }
@@ -662,6 +743,9 @@ void ocr_thread() {
 int main() {
 
     const char* url = "rtsp://192.168.0.64/profile2/media.smp";
+
+    // Set log level to reduce swscaler warnings
+    av_log_set_level(AV_LOG_ERROR);
 
     avformat_network_init();
     AVFormatContext *formatContext = nullptr;

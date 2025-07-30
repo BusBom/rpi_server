@@ -4,8 +4,7 @@
 #include <cmath>
 
 void TFOCR::save(const cv::Mat& img, const std::string& filename) {
-    std::string full_path = preprocess_dir + "/" + filename;
-    cv::imwrite(full_path, img);
+    cv::imwrite(filename, img);
 }
 
 std::vector<cv::Point2f> TFOCR::order_points(const std::vector<cv::Point>& pts) {
@@ -37,10 +36,15 @@ bool TFOCR::extract_plate_region(const cv::Mat& input, cv::Mat& output_plate) {
     cv::Mat hsv;
     cv::cvtColor(input, hsv, cv::COLOR_BGR2HSV);
 
-    cv::Scalar lower_yellow(15, 100, 100);
-    cv::Scalar upper_yellow(35, 255, 255);
+    cv::Scalar lower_yellow(10, 80, 80);
+    cv::Scalar upper_yellow(40, 255, 255);
     cv::Mat mask;
-    cv::inRange(hsv, lower_yellow, upper_yellow, mask);
+    cv::inRange(input, lower_yellow, upper_yellow, mask);
+    
+    // Apply morphological operations to expand the yellow region
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7));
+    cv::dilate(mask, mask, kernel, cv::Point(-1, -1), 2);
+    cv::erode(mask, mask, kernel, cv::Point(-1, -1), 1);
 
     cv::Mat masked;
     cv::bitwise_and(input, input, masked, mask);
@@ -217,9 +221,16 @@ std::string TFOCR::removeRegionalName(const std::string& text) {
 
 TFOCR::OCRResult TFOCR::run_ocr(const cv::Mat& input_img) {
 
-    cv::Mat gray = preprocess_plate(input_img, 0); // Preprocess the input image
-    cv::cvtColor(input_img, gray, cv::COLOR_BGR2GRAY);
-    cv::resize(gray, gray, cv::Size(192, 96));
+    // Enhanced image preprocessing for better OCR accuracy
+    cv::Mat processed_img = input_img.clone();
+    
+    // 3. Convert to grayscale
+    cv::Mat gray;
+    cv::cvtColor(processed_img, gray, cv::COLOR_BGR2GRAY);
+    
+    // 6. Resize to model input size
+    cv::resize(gray, gray, cv::Size(192, 96), 0, 0, cv::INTER_LANCZOS4);
+    
     cv::imwrite("debug_ocr_input.jpg", gray); // Debugging line
     gray.convertTo(gray, CV_32FC1, 1.0 / 255.0);
 
@@ -252,15 +263,18 @@ TFOCR::OCRResult TFOCR::run_ocr(const cv::Mat& input_img) {
     // Remove regional name if present
     result = removeRegionalName(result);
 
-
+    
+    
     // Calculate confidence
     float confidence = getConfidence(output_data, time, classes, "min");
     confidence = std::round(confidence * 10000.0f) / 10000.0f; // Round to 4 decimal places
-
+    
     // Return empty result if confidence is too low
     if (confidence < min_confidence_threshold) {
-        // std::cout << "[OCR] Low confidence (" << confidence << " < " << min_confidence_threshold 
-                //   << "), returning empty result" << std::endl;
+        return {"", 0.0f};
+    }
+
+    if (result.empty() || result[0] != '7') {
         return {"", 0.0f};
     }
 
