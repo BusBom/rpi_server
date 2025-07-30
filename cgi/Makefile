@@ -1,4 +1,5 @@
-TARGET = bus-mapping
+# Default target if not specified
+TARGET ?= stop-status
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
@@ -27,6 +28,7 @@ install-cgi: build
 	sudo cp build/$(BIN) $(CGI_DIR)/
 	sudo chmod +x $(CGI_DIR)/$(BIN)
 
+<<<<<<< HEAD
 # Nginx 설정 복사 및 링크
 install-conf: $(CONF_FILE)
 	@echo "Copying $(CONF_FILE) to $(SITES_AVAILABLE)..."
@@ -35,12 +37,19 @@ install-conf: $(CONF_FILE)
 	sudo ln -sf $(SITES_AVAILABLE)/$(CONF_FILE) $(SITES_ENABLED)/$(CONF_FILE)
 
 # Nginx 리로드
+=======
+>>>>>>> origin/main
 reload-nginx:
 	@echo "Reloading nginx..."
 	sudo nginx -s reload
 
+<<<<<<< HEAD
 # 전체 배포
 deploy: install-cgi install-conf reload-nginx
+=======
+# 전체 배포 한 번에
+deploy: install-cgi reload-nginx
+>>>>>>> origin/main
 	@echo "======= ALL DONE! ======="
 
 # 빌드 클린
