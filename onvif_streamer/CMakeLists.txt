@@ -4,12 +4,12 @@ project(onvif_streamer VERSION 1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include_directories(/usr/include)
-link_directories(/usr/lib/x86_64-linux-gnu)
-
-
-# FFmpeg
+# Find required packages
 find_package(PkgConfig REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(SDL2 REQUIRED)
+
+# FFmpeg libraries
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
     libavformat
     libavcodec
@@ -24,35 +24,28 @@ message(STATUS "Found TF-LITE Libs:" ${TFLITE_STATIC_LIB})
 
 include_directories(${TFLITE_INCLUDE_DIR})
 
-# TinyXML2
-# set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/tinyxml2")
-# find_package(tinyxml2 REQUIRED)
+add_executable(onvif_streamer parser.cpp main.cpp video.cpp ocr.cpp)
 
-# OpenCV
-find_package(OpenCV REQUIRED)
-
-add_executable(onvif_streamer main.cpp ocr.cpp video.cpp metadata.cpp)
-
-# include paths
+# Include directories
 target_include_directories(onvif_streamer PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${OpenCV_INCLUDE_DIRS}
+    ${SDL2_INCLUDE_DIRS}
     ${TFLITE_INCLUDE_DIR}
 )
 
-
-# link libraries
+# Link libraries
 target_link_libraries(onvif_streamer PRIVATE 
     PkgConfig::LIBAV
     tinyxml2
     ${OpenCV_LIBS}
+    ${SDL2_LIBRARIES}
     ${TFLITE_STATIC_LIB}
-    rt  # For shared memory functions
-    pthread # For std::thread
+    rt
+    pthread
 )
-
 
 # macOS specific settings
 if(APPLE)
-    target_link_libraries(onvif_streamer PRIVATE "-framework CoreFoundation" "-framework VideoToolbox" "-framework CoreVideo" "-framework CoreMedia")
+    target_link_libraries(rtsp_onvif_ch PRIVATE "-framework CoreFoundation" "-framework VideoToolbox" "-framework CoreVideo" "-framework CoreMedia")
 endif()
