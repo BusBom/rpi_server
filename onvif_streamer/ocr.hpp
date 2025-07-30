@@ -26,8 +26,8 @@ class TFOCR {
         float getConfidenceThreshold() const { return min_confidence_threshold; }
         
     private:
-         std::string preprocess_dir;
-         float min_confidence_threshold = 0.5f; // Default threshold: 50%
+        std::string preprocess_dir;
+        float min_confidence_threshold = 0.35f; // Default threshold: 40%
 
         void save(const cv::Mat& img, const std::string& filename);
         std::vector<cv::Point2f> order_points(const std::vector<cv::Point>& pts);
