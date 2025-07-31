@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Threads REQUIRED)
 find_package(CURL REQUIRED)
 
-add_executable(main_server
+add_executable(bus_butt
     main.cpp
 
     bus_station_manager/bus_station_manager.cpp
@@ -16,7 +16,7 @@ add_executable(main_server
     display_writer/display_writer.cpp
 )
 
-target_include_directories(main_server PRIVATE
+target_include_directories(bus_butt PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/stop_status_fetcher
     ${CMAKE_CURRENT_SOURCE_DIR}/bus_station_manager
@@ -25,7 +25,7 @@ target_include_directories(main_server PRIVATE
     ${CURL_INCLUDE_DIRS}
 )
 
-target_link_libraries(main_server PRIVATE
+target_link_libraries(bus_butt PRIVATE
     Threads::Threads
     ${CURL_LIBRARIES}
 )

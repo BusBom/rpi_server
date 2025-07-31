@@ -20,18 +20,16 @@ int main() {
     const std::string stop_status_cgi_url = "http://192.168.0.82/cgi-bin/stop-status.cgi";  // platform_observer
     const std::string bus_mapping_cgi_url = "http://localhost/cgi-bin/bus-mapping.cgi";     // local data
     
-    std::map<int, int> pending_assignments; // {platform_id -> bus_id}
+    std::map<int, int> pending_assignments; // {platform_id -> bus_id} 배차 지시된 버스목록
     bool is_initialized = false;
-
-    std::cout << "메인 서버 로직 시작. 0.5초마다 정류장 상태를 확인합니다.\n";
 
     // --- 2. 메인 루프 시작 ---
     while (true) {
         try {
-            StopStatusData data = fetchStopStatusFromHTTP(stop_status_cgi_url);
-            std::list<int> incoming_bus_queue = fetchIncomingBusQueue(bus_mapping_cgi_url);
+            StopStatusData data = fetchStopStatusFromHTTP(stop_status_cgi_url);             // 정류장 상태 정보
+            std::list<int> incoming_bus_queue = fetchIncomingBusQueue(bus_mapping_cgi_url); // 곧 도착할 버스 목록
 
-            std::cout << "\n[Fetch] " << data.updated_at << " / Status: ";
+            std::cout << "\n[Fetch] " << data.updated_at << " / Status: ";                  // 업데이트 시각
             for(int s : data.platform_status) std::cout << s << " ";
             std::cout << std::endl;
             
@@ -51,7 +49,7 @@ int main() {
             }
 
             // 센서 상태 업데이트 및 안정화 확인
-            manager.updateSensorState(data.platform_status);
+            manager.updateState(data.platform_status);
             
             // 초기 상태 동기화
             if (!is_initialized && manager.isStable()) {
@@ -98,6 +96,7 @@ int main() {
                         int bus_id = -1;
                         int platform_to_confirm = -1;
 
+                        // 지시한 플랫폼과 같은 위치인지 확인
                         if (pending_assignments.count(arrived_platform)) {
                             platform_to_confirm = arrived_platform;
                         } else if (pending_assignments.count(arrived_platform - 1)) {
@@ -131,6 +130,7 @@ int main() {
                 }
                 std::sort(assignable_slots.begin(), assignable_slots.end());
                 
+                // incoming queue에 있는 버스 꺼내기
                 for (int platform : assignable_slots) {
                     if (!incoming_bus_queue.empty()) {
                         int bus_to_assign = incoming_bus_queue.front();
@@ -168,6 +168,7 @@ int main() {
                         }
                     }
                     printResultToStdout(final_instructions, total_valid_platforms);
+                    writeResultToDevice(final_instructions);    // 현재 LED Matrix는 플랫폼 4개까지만 출력. 추후 확장 가능
                 }
             }
 

@@ -7,13 +7,13 @@ bool ConfirmedActions::empty() const {
 
 // BusStationManager 클래스의 생성자
 BusStationManager::BusStationManager() {
-    last_sensor_change_time_ = std::chrono::steady_clock::now();
+    last_state_change_time_ = std::chrono::steady_clock::now();
 }
 
 // 시스템이 안정적인지 확인하는 함수
 bool BusStationManager::isStable() const {
     auto now = std::chrono::steady_clock::now();
-    return std::chrono::duration_cast<std::chrono::seconds>(now - last_sensor_change_time_).count() >= CONFIRMATION_TIME_S;
+    return std::chrono::duration_cast<std::chrono::seconds>(now - last_state_change_time_).count() >= CONFIRMATION_TIME_S;
 }
 
 // 특정 플랫폼에 버스를 수동으로 배정하는 함수
@@ -38,14 +38,14 @@ std::vector<int> BusStationManager::getOccupiedPlatforms(int total_platforms) co
 }
 
 // 최신 센서 상태를 업데이트하는 함수
-void BusStationManager::updateSensorState(const std::vector<int>& current_status) {
-    if (last_seen_sensor_status_.size() != current_status.size()) {
-        last_seen_sensor_status_.resize(current_status.size(), 0);
+void BusStationManager::updateState(const std::vector<int>& current_status) {
+    if (last_seen_state_status_.size() != current_status.size()) {
+        last_seen_state_status_.resize(current_status.size(), 0);
     }
-    if (last_seen_sensor_status_ != current_status) {
-        last_seen_sensor_status_ = current_status;
-        last_sensor_change_time_ = std::chrono::steady_clock::now();
-        std::cout << "[Sensor] 상태 변경 감지. 안정화 타이머 리셋.\n";
+    if (last_seen_state_status_ != current_status) {
+        last_seen_state_status_ = current_status;
+        last_state_change_time_ = std::chrono::steady_clock::now();
+        std::cout << "[state] 상태 변경 감지. 안정화 타이머 리셋.\n";
     }
 }
 
@@ -60,7 +60,7 @@ ConfirmedActions BusStationManager::analyzeStableState() const {
         }
     }
 
-    const auto& stable_status = last_seen_sensor_status_;
+    const auto& stable_status = last_seen_state_status_;
     std::vector<int> previous_logical_status = getOccupiedPlatforms(stable_status.size());
     
     std::map<int, int> departure_candidates;
@@ -111,5 +111,5 @@ void BusStationManager::applyActions(const ConfirmedActions& actions) {
         platform_to_bus_[to_platform] = bus_id;
     }
 
-    last_confirmed_status_ = last_seen_sensor_status_;
+    last_confirmed_status_ = last_seen_state_status_;
 }
