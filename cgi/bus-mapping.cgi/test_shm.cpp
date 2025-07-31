@@ -56,4 +56,4 @@ int main() {
 
 // g++ -std=c++17 -Wall -o test_shm test_shm.cpp -pthread -lrt
 // ls /dev/shm
-// rm -rf /dev/shm/bus_approach
+// sudo rm -rf /dev/shm/bus_approach

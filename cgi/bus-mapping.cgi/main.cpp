@@ -1,3 +1,7 @@
+/**
+  Caution : shared memory에 대한 쓰기 동작이 있어서, 읽기와 쓰기 권한이 있어야 함
+ */
+
 #if 1
 #include "json.hpp"
 #endif
@@ -24,7 +28,7 @@ using json = nlohmann::json;
 const char* SHM_SEQUENCE_NAME = "/bus_approach";
 const size_t SHM_SEQUENCE_SIZE = sizeof(char) * MAX_BUSES * MAX_PLATE_LENGTH;
 
-// 매핑 파일 경로
+// 매핑 파일 경로 (시스템 경로)
 const std::string ROUTE_MAP_FILE = "/etc/bus/route_map.csv";
 
 struct BusSequence {
@@ -66,13 +70,21 @@ void update_route_map_from_file() {
 json read_bus_sequence() {
   json result = json::array();
 
-  int fd = shm_open(SHM_SEQUENCE_NAME, O_RDONLY, 0);
+  // 공유 메모리 열기 (없으면 생성) - 모든 사용자 접근 가능
+  int fd = shm_open(SHM_SEQUENCE_NAME, O_CREAT | O_RDWR, 0777);
   if (fd == -1) {
     std::cerr << "[ERROR] shm_open failed: " << strerror(errno) << std::endl;
     return result;
   }
 
-  void* addr = mmap(nullptr, sizeof(BusSequence), PROT_READ, MAP_SHARED, fd, 0);
+  // 공유 메모리 크기 설정 (새로 생성된 경우)
+  if (ftruncate(fd, sizeof(BusSequence)) == -1) {
+    std::cerr << "[ERROR] ftruncate failed: " << strerror(errno) << std::endl;
+    close(fd);
+    return result;
+  }
+
+  void* addr = mmap(nullptr, sizeof(BusSequence), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   close(fd);
 
   if (addr == MAP_FAILED) {
@@ -84,31 +96,56 @@ json read_bus_sequence() {
 
   for (int i = 0; i < MAX_BUSES; ++i) {
     std::string plate = seq->plates[i];
-    if (plate.empty() || plate[0] == '\0') continue;
+    
+    // null 문자 제거
+    size_t null_pos = plate.find('\0');
+    if (null_pos != std::string::npos) {
+      plate = plate.substr(0, null_pos);
+    }
+    
+    if (plate.empty() || plate[0] == '\0') {
+      continue;
+    }
 
     json item;
     item["busNumber"] = plate;
 
     auto it = route_map.find(plate);
-    item["routeID"] = (it != route_map.end()) ? it->second : "";
+    std::string route_id = (it != route_map.end()) ? it->second : "";
+    item["routeID"] = route_id;
 
-    result.push_back(item);
+    // routeID가 비어있어도 데이터를 포함
+    if(route_id.length() > 0) {
+      result.push_back(item);
+    }
   }
+
+  // 데이터 초기화 (다른 프로세스가 사용할 수 있도록)
+  std::memset(seq, 0, sizeof(BusSequence));
 
   munmap(addr, sizeof(BusSequence));
   return result;
 }
 
 int main() {
+  std::cerr << "[DEBUG] CGI application started" << std::endl;
+  
   while (FCGI_Accept() >= 0) {
+    std::cerr << "[DEBUG] Processing request" << std::endl;
+    
     update_route_map_from_file();
 
     char* method_cstr = getenv("REQUEST_METHOD");
     std::string method = method_cstr ? method_cstr : "";
 
+    std::cerr << "[DEBUG] Request method: " << method << std::endl;
+
     if (method == "GET") {
+      std::cerr << "[DEBUG] Calling read_bus_sequence" << std::endl;
       json data = read_bus_sequence();
       std::string response = data.dump(4);
+
+      std::cerr << "[DEBUG] Response: " << response << std::endl;
 
       printf("Content-Type: application/json\r\n");
       printf("Content-Length: %zu\r\n\r\n", response.size());
