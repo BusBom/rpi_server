@@ -54,30 +54,30 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
     curl_easy_cleanup(curl);
 
     // 디버깅: HTTP 응답 원본 데이터 출력
-    std::cout << "[Debug] Raw HTTP response: " << readBuffer << std::endl;
+    // std::cout << "[Debug] Raw HTTP response: " << readBuffer << std::endl;
 
     std::list<int> queue;
     try {
         auto j = json::parse(readBuffer);
         
         // 디버깅: 파싱된 JSON 구조 출력
-        std::cout << "[Debug] Parsed JSON: " << j.dump(2) << std::endl;
-        std::cout << "[Debug] JSON array size: " << j.size() << std::endl;
+        // std::cout << "[Debug] Parsed JSON: " << j.dump(2) << std::endl;
+        // std::cout << "[Debug] JSON array size: " << j.size() << std::endl;
         
         for (const auto& item : j) {
             // 디버깅: 각 아이템 정보 출력
-            std::cout << "[Debug] Processing item: " << item.dump() << std::endl;
+            // std::cout << "[Debug] Processing item: " << item.dump() << std::endl;
             
             // busNumber가 문자열이므로 stoi를 사용해 int로 변환
             std::string busNumberStr = item.at("busNumber").get<std::string>();
             int busNumber = std::stoi(busNumberStr);
             
-            std::cout << "[Debug] Bus number string: '" << busNumberStr << "' -> int: " << busNumber << std::endl;
+            // std::cout << "[Debug] Bus number string: '" << busNumberStr << "' -> int: " << busNumber << std::endl;
             queue.push_back(busNumber);
         }
         
         // 디버깅: 최종 큐 내용 출력
-        std::cout << "[Debug] Final queue contents: ";
+        // std::cout << "[Debug] Final queue contents: ";
         for (const auto& bus : queue) {
             std::cout << bus << " ";
         }

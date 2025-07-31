@@ -31,11 +31,14 @@ extern "C" {
 #include "video.hpp"
 #include "ocr.hpp"
 #include "bus_sequence.hpp"
+#include "json.hpp"
 #include <sys/mman.h>
 #include <fcntl.h>
 
 #define HANWHA_ORIGINAL_WIDTH 3840.0
 #define HANWHA_ORIGINAL_HEIGHT 2160.0
+
+using json = nlohmann::ordered_json;
 
 // --- Thread-Safe Queue ---
 template<typename T>
@@ -609,7 +612,7 @@ void ocr_thread() {
     void* shm_ptr;
 
     if (shm_name != nullptr && strlen(shm_name) > 0 && shm_size > 0) {
-        int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0666);
+        int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0777);
         if (shm_fd == -1) {
             std::cerr << "Failed to open shared memory: " << strerror(errno) << std::endl;
         } else {
@@ -621,6 +624,10 @@ void ocr_thread() {
                 if (shm_ptr == MAP_FAILED) {
                     std::cerr << "Failed to map shared memory: " << strerror(errno) << std::endl;
                     shm_ptr = nullptr;
+                } else {
+                    // Initialize shared memory to zero
+                    std::memset(shm_ptr, 0, shm_size);
+                    std::cout << "Shared memory initialized to zero: " << shm_name << " (" << shm_size << " bytes)" << std::endl;
                 }
                 close(shm_fd);
                 std::cout << "Shared memory initialized: " << shm_name << " (" << shm_size << " bytes)" << std::endl;
@@ -695,47 +702,63 @@ void ocr_thread() {
 
         // If shared memory is initialized, write results
         if (shm_ptr != nullptr) {
-            BusSequence* bus_sequence = static_cast<BusSequence*>(shm_ptr);
+
+            json currents = json::array();
+            for (size_t i = 0; i < ocr_results.size(); ++i) {
+                currents.push_back({
+                    {"busNumber", ocr_results[i]}
+                });
+            }
             
             // Read existing plates from shared memory
-            std::vector<std::string> existing_plates;
-            for (int i = 0; i < MAX_BUSES; ++i) {
-                if (strlen(bus_sequence->plates[i]) > 0) {
-                    existing_plates.push_back(std::string(bus_sequence->plates[i]));
+            json existing_plates = json::array();
+            std::string existing_data((char*)shm_ptr);
+            if (!existing_data.empty()) {
+                try {
+                    existing_plates = json::parse(existing_data);
+                    if (!existing_plates.is_array()) {
+                        existing_plates = json::array();
+                    }
+                } catch (const json::exception& e) {
+                    std::cerr << "[OCR] Failed to parse existing JSON from shared memory: " << e.what() << std::endl;
+                    existing_plates = json::array();
                 }
             }
             
             // Filter out duplicates from ocr_results that already exist in shared memory
-            std::vector<std::string> new_plates;
-            for (const auto& result : ocr_results) {
-                // Check if this result already exists in shared memory
-                if (std::find(existing_plates.begin(), existing_plates.end(), result) == existing_plates.end()) {
-                    new_plates.push_back(result);
-                } else {
-                    std::cout << "[OCR] Plate already in SHM, skipping: " << result << std::endl;
+            std::vector<std::string> new_unique_plates;
+            for (const std::string& new_plate : ocr_results) {
+                bool already_exists = false;
+                for (const auto& existing_plate : existing_plates) {
+                    if (existing_plate.contains("busNumber") && 
+                        existing_plate["busNumber"].get<std::string>() == new_plate) {
+                        already_exists = true;
+                        break;
+                    }
+                }
+                if (!already_exists) {
+                    new_unique_plates.push_back(new_plate);
                 }
             }
             
             // Create final list: keep existing plates and add new unique ones
-            std::vector<std::string> final_plates = existing_plates;
-            for (const auto& new_plate : new_plates) {
-                if (final_plates.size() < MAX_BUSES) {
-                    final_plates.push_back(new_plate);
-                    std::cout << "[OCR] Added new plate to SHM: " << new_plate << std::endl;
-                } else {
-                    std::cout << "[OCR] SHM full, cannot add: " << new_plate << std::endl;
-                    break;
-                }
+            json final_plates = existing_plates;
+            for (const std::string& unique_plate : new_unique_plates) {
+                final_plates.push_back({
+                    {"busNumber", unique_plate}
+                });
             }
             
             // Clear and write final results to shared memory
-            std::memset(bus_sequence, 0, sizeof(BusSequence));
-            size_t count = std::min(final_plates.size(), static_cast<size_t>(MAX_BUSES));
-            for(size_t i = 0; i < count; ++i) {
-                strncpy(bus_sequence->plates[i], final_plates[i].c_str(), MAX_PLATE_LENGTH - 1);
-
-                bus_sequence->plates[i][MAX_PLATE_LENGTH - 1] = '\0'; // Ensure null-termination
+            std::string final_json = final_plates.dump();
+            if (final_json.size() < shm_size - 1) {  // Leave space for null terminator
+                std::memset(shm_ptr, 0, shm_size);  // Clear shared memory
+                std::memcpy(shm_ptr, final_json.c_str(), final_json.size());
+                std::cout << "[OCR] Updated shared memory with " << final_plates.size() << " plates" << std::endl;
+            } else {
+                std::cerr << "[OCR] JSON data too large for shared memory buffer" << std::endl;
             }
+
         }
     }
 }
