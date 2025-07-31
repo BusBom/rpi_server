@@ -17,8 +17,8 @@
 int main() {
     // --- 1. 초기 설정 ---
     BusStationManager manager;
-    const std::string stop_status_cgi_url = "http://192.168.0.82/cgi-bin/stop-status.cgi";  // platform_observer
-    const std::string bus_mapping_cgi_url = "http://localhost/cgi-bin/bus-mapping.cgi";     // local data
+    const std::string stop_status_cgi_url = "https://192.168.0.82/cgi-bin/stop-status.cgi";  // platform_observer
+    const std::string bus_mapping_cgi_url = "https://127.0.0.1/cgi-bin/bus-mapping.cgi";     // local data
     
     std::map<int, int> pending_assignments; // {platform_id -> bus_id} 배차 지시된 버스목록
     bool is_initialized = false;
