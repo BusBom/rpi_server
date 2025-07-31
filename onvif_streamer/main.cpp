@@ -24,6 +24,7 @@ extern "C" {
 #include <signal.h>
 #include <csignal>
 #include <SDL2/SDL.h>
+#include <curl/curl.h>
 #include <queue>
 #include <opencv2/opencv.hpp>
 
@@ -32,6 +33,7 @@ extern "C" {
 #include "ocr.hpp"
 #include "bus_sequence.hpp"
 #include "json.hpp"
+#include "../shared_memory_sync.hpp"
 #include <sys/mman.h>
 #include <fcntl.h>
 
@@ -109,6 +111,11 @@ struct Clock {
 
 Clock video_clock = {0.0, 0.0, 1.0, 0, false};
 Clock master_clock = {0.0, 0.0, 1.0, 0, false};
+
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
 
 // --- Thread Functions ---
 void stream_thread(AVFormatContext* formatContext, int data_stream_index, int video_stream_index) {
@@ -606,34 +613,15 @@ void ocr_thread() {
     std::cout << "[OCR] OCR thread started." << std::endl;
     ocrProcessor.load_ocr("model.tflite", "labels.names");
     
-    // Initialize shared memory
-    const char * shm_name = "/bus_approach";
-    const size_t shm_size = 4096;
-    void* shm_ptr;
-
-    if (shm_name != nullptr && strlen(shm_name) > 0 && shm_size > 0) {
-        int shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0777);
-        if (shm_fd == -1) {
-            std::cerr << "Failed to open shared memory: " << strerror(errno) << std::endl;
-        } else {
-            if (ftruncate(shm_fd, shm_size) == -1) {
-                std::cerr << "Failed to set shared memory size: " << strerror(errno) << std::endl;
-                close(shm_fd);
-            } else {
-                shm_ptr = mmap(nullptr, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-                if (shm_ptr == MAP_FAILED) {
-                    std::cerr << "Failed to map shared memory: " << strerror(errno) << std::endl;
-                    shm_ptr = nullptr;
-                } else {
-                    // Initialize shared memory to zero
-                    std::memset(shm_ptr, 0, shm_size);
-                    std::cout << "Shared memory initialized to zero: " << shm_name << " (" << shm_size << " bytes)" << std::endl;
-                }
-                close(shm_fd);
-                std::cout << "Shared memory initialized: " << shm_name << " (" << shm_size << " bytes)" << std::endl;
-            }
-        }
+    // Initialize shared memory with synchronization
+    SharedMemorySync shm_sync("/bus_approach", "/bus_approach_sem", 4096);
+    if (!shm_sync.initialize()) {
+        std::cerr << "[OCR] Failed to initialize shared memory sync" << std::endl;
+        return;
     }
+
+    CURL* curl;
+    CURLcode res;
 
     int frame_counter = 0;
     
@@ -700,8 +688,13 @@ void ocr_thread() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
-        // If shared memory is initialized, write results
-        if (shm_ptr != nullptr) {
+        // If shared memory is initialized, write results with synchronization
+        {
+            ScopedLock lock(shm_sync);
+            if (!lock.is_locked()) {
+                std::cerr << "[OCR] Failed to acquire lock for shared memory" << std::endl;
+                continue;
+            }
 
             json currents = json::array();
             for (size_t i = 0; i < ocr_results.size(); ++i) {
@@ -712,7 +705,7 @@ void ocr_thread() {
             
             // Read existing plates from shared memory
             json existing_plates = json::array();
-            std::string existing_data((char*)shm_ptr);
+            std::string existing_data = shm_sync.read_data();
             if (!existing_data.empty()) {
                 try {
                     existing_plates = json::parse(existing_data);
@@ -749,19 +742,49 @@ void ocr_thread() {
                 });
             }
             
-            // Clear and write final results to shared memory
+            // Write final results to shared memory
             std::string final_json = final_plates.dump();
-            if (final_json.size() < shm_size - 1) {  // Leave space for null terminator
-                std::memset(shm_ptr, 0, shm_size);  // Clear shared memory
-                std::memcpy(shm_ptr, final_json.c_str(), final_json.size());
+            if (shm_sync.write_data(final_json)) {
                 std::cout << "[OCR] Updated shared memory with " << final_plates.size() << " plates" << std::endl;
             } else {
                 std::cerr << "[OCR] JSON data too large for shared memory buffer" << std::endl;
             }
+        } // ScopedLock automatically unlocks here
+
+           
+            // std::string readBuffer;
+
+            // curl = curl_easy_init();
+            // if (!curl) {
+            //     throw std::runtime_error("Failed to init curl for bus queue");
+            // }
+
+            // // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+            // curl_easy_setopt(curl, CURLOPT_URL, "https://127.0.0.1/cgi-bin/bus-mapping.cgi");
+
+            // curl_easy_setopt(curl, CURLOPT_SSLCERT, "/etc/nginx/ssl/server1.cert.pem");
+            // curl_easy_setopt(curl, CURLOPT_SSLKEY, "/etc/nginx/ssl/server1.key.pem");
+            // curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/nginx/ssl/ca.cert.pem");
+
+            // curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // 인증서 검증 비활성화
+            // curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);  // 호스트 검증 비활성화
+
+            // curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+            // curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+            // curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
+
+            // res = curl_easy_perform(curl);
+            // if (res != CURLE_OK) {
+            //     curl_easy_cleanup(curl);
+            //     throw std::runtime_error("curl_easy_perform() for bus queue failed: " + std::string(curl_easy_strerror(res)));
+            // }
+            // curl_easy_cleanup(curl);
+
+            // // 디버깅: HTTP 응답 원본 데이터 출력
+            // std::cout << "[Debug] Raw HTTP response: " << readBuffer << std::endl;
 
         }
     }
-}
 
 int main() {
 

@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(SDL2 REQUIRED)
+find_package(CURL REQUIRED)
 
 # FFmpeg libraries
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
@@ -32,6 +33,7 @@ target_include_directories(onvif_streamer PRIVATE
     ${OpenCV_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}
     ${TFLITE_INCLUDE_DIR}
+    ${CURL_INCLUDE_DIRS}
 )
 
 # Link libraries
@@ -41,6 +43,7 @@ target_link_libraries(onvif_streamer PRIVATE
     ${OpenCV_LIBS}
     ${SDL2_LIBRARIES}
     ${TFLITE_STATIC_LIB}
+    ${CURL_LIBRARIES}
     rt
     pthread
 )
