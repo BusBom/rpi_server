@@ -22,15 +22,6 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
  * @return std::list<int> 정수형 버스 ID 목록.
  */
 std::list<int> fetchIncomingBusQueue(const std::string& url) {
-
-        // --- [테스트용 목업 데이터] ---
-    // 실제 HTTP 요청 대신, 미리 정해진 버스 목록을 반환합니다.
-    // 테스트하고 싶은 버스 번호를 이 목록에 추가하거나 수정하세요.
-    std::cout << "[Mock] 테스트용 버스 큐 데이터를 반환합니다.\n";
-    return {101, 102, 103, 201};
-    // --------------------------
-
-    /*
     CURL* curl;
     CURLcode res;
     std::string readBuffer;
@@ -64,5 +55,4 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
         // 파싱에 실패하더라도 빈 큐를 반환하여 프로그램이 중단되지 않도록 함
     }
     return queue;
-    */
 }

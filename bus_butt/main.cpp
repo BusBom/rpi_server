@@ -167,7 +167,7 @@ int main() {
                             final_instructions.push_back(inst);
                         }
                     }
-                    printResultToStdout(final_instructions, total_valid_platforms);
+                    printResultToSHM(final_instructions, total_valid_platforms);
                     writeResultToDevice(final_instructions);    // 현재 LED Matrix는 플랫폼 4개까지만 출력. 추후 확장 가능
                 }
             }
