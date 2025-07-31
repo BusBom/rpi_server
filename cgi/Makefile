@@ -1,5 +1,5 @@
 # Default target if not specified
-TARGET ?= bus-mapping
+TARGET ?= capture
 SRCS = $(TARGET).cgi/main.cpp
 BIN = $(TARGET).cgi
 
@@ -7,7 +7,7 @@ CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -pthread
 FCGI_FLAGS = -lfcgi
 RT_FLAGS = -lrt
-# OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`  # 필요 없다면 주석 처리
+OPENCV_FLAGS = `pkg-config --cflags --libs opencv4`  # 필요 없다면 주석 처리
 
 CGI_DIR = /usr/lib/cgi-bin
 
@@ -20,7 +20,7 @@ SITES_ENABLED = /etc/nginx/sites-enabled
 # 빌드 대상 생성
 build: $(SRCS)
 	@mkdir -p build
-	$(CXX) $(CXXFLAGS) -o build/$(BIN) $(SRCS) $(FCGI_FLAGS) $(RT_FLAGS)
+	$(CXX) $(CXXFLAGS) -o build/$(BIN) $(SRCS) $(FCGI_FLAGS) $(RT_FLAGS) $(OPENCV_FLAGS)
 
 # CGI 바이너리 설치
 install-cgi: build

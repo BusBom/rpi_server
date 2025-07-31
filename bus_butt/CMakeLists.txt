@@ -28,4 +28,5 @@ target_include_directories(bus_butt PRIVATE
 target_link_libraries(bus_butt PRIVATE
     Threads::Threads
     ${CURL_LIBRARIES}
+    rt
 )
