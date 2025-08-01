@@ -579,7 +579,7 @@ void render_thread(AVFormatContext* formatContext, int video_stream_index) {
             // Render frame and metadata
             render_frame_to_sdl(renderer, texture, frame);
             if (metadata_found) {
-                // render_metadata_overlay(renderer, current_metadata, width, height);
+                render_metadata_overlay(renderer, current_metadata, width, height);
 
                 // Get cropped frames from metadata bounding boxes
                 std::vector<AVFrame*> cropped_frames = render_metadata_crop_to_avframe(frame, current_metadata, width, height, custom_point);
@@ -765,7 +765,7 @@ void ocr_thread() {
 
 int main() {
 
-    const char* url = "rtsp://192.168.0.64/profile2/media.smp";
+    const char* url = "rtsp://192.168.219.73/profile2/media.smp";
 
     // Set log level to reduce swscaler warnings
     av_log_set_level(AV_LOG_ERROR);

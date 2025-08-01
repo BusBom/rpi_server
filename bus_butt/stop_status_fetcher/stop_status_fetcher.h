@@ -8,6 +8,10 @@ struct StopStatusData {
     std::string station_id;
     std::vector<int> platform_status;
     std::string updated_at;  // 문자열로 받음 ("YYYY-MM-DD HH:MM:SS")
+
+    int current_bus_count;  // 현재 정류장 내 버스 수
+    int entered_bus_count;  // 누적 진입 버스 수
+    int exited_bus_count;   // 누적 진출 버스 수
 };
 
 /**

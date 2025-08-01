@@ -21,7 +21,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
  * @param url bus-mapping.cgi의 전체 주소.
  * @return std::list<int> 정수형 버스 ID 목록.
  */
-std::list<int> fetchIncomingBusQueue(const std::string& url) {
+std::deque<int> fetchIncomingBusQueue(const std::string& url) {
 
     CURL* curl;
     CURLcode res;
@@ -56,7 +56,7 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
     // 디버깅: HTTP 응답 원본 데이터 출력
     // std::cout << "[Debug] Raw HTTP response: " << readBuffer << std::endl;
 
-    std::list<int> queue;
+    std::deque<int> queue;
     try {
         auto j = json::parse(readBuffer);
         
@@ -69,11 +69,15 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
             // std::cout << "[Debug] Processing item: " << item.dump() << std::endl;
             
             // busNumber가 문자열이므로 stoi를 사용해 int로 변환
-            std::string busNumberStr = item.at("busNumber").get<std::string>();
+            std::string busNumberStr = item.at("routeID").get<std::string>();
             int busNumber = std::stoi(busNumberStr);
             
             // std::cout << "[Debug] Bus number string: '" << busNumberStr << "' -> int: " << busNumber << std::endl;
             queue.push_back(busNumber);
+            for (const auto& bus : queue) {
+                std::cout << " // " << bus << " // ";
+            }
+            std::cout << std::endl;
         }
         
         // 디버깅: 최종 큐 내용 출력

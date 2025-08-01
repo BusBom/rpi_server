@@ -167,7 +167,7 @@ int main() {
 
     std::cerr << "[DEBUG] Request method: " << method << std::endl;
 
-    if (method == "GET") {
+    // if (method == "GET") {
       std::cerr << "[DEBUG] Calling read_bus_sequence" << std::endl;
       json data = read_bus_sequence();
       std::string response = data.dump(4);
@@ -178,15 +178,15 @@ int main() {
       printf("Content-Length: %zu\r\n\r\n", response.size());
       printf("%s", response.c_str());
       FCGI_fflush(FCGI_stdout);
-    } else {
-      json err = {{"error", "Only GET is supported"}, {"method", method}};
-      std::string err_str = err.dump(4);
+    // } else {
+    //   json err = {{"error", "Only GET is supported"}, {"method", method}};
+    //   std::string err_str = err.dump(4);
 
-      printf("Content-Type: application/json\r\n");
-      printf("Content-Length: %zu\r\n\r\n", err_str.size());
-      printf("%s", err_str.c_str());
-      FCGI_fflush(FCGI_stdout);
-    }
+    //   printf("Content-Type: application/json\r\n");
+    //   printf("Content-Length: %zu\r\n\r\n", err_str.size());
+    //   printf("%s", err_str.c_str());
+    //   FCGI_fflush(FCGI_stdout);
+    // }
   }
 
   return 0;

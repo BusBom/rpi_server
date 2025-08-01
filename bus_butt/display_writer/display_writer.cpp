@@ -79,7 +79,7 @@ void printResultToSHM(const std::vector<std::pair<int, std::string>>& result, in
 // 매칭 결과를 /dev/serdev-uart 장치로 전송
 void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result) {
     // 플랫폼 수는 최대 4개로 고정 (P1~P4)
-    std::vector<std::string> platform_bus(4, "");  // 초기값은 공백
+    std::vector<std::string> platform_bus(4, " ");  // 초기값은 공백
 
     // result에서 platform 번호(P0~P3)에 해당하는 버스 번호 설정
     for (const auto& [platform, plate_raw] : result) {
@@ -105,6 +105,11 @@ void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result)
     }
 
     // 문자열 쓰기
+    ssize_t wrin = write(fd, "x:x:x:x:\n", strlen("x:x:x:x:\n") + 1);
+    if (wrin < 0) {
+        std::cerr << "[ERROR] Failed to write to /dev/serdev-uart: " << strerror(errno) << "\n";
+    }
+
     ssize_t written = write(fd, output.c_str(), output.size());
     if (written < 0) {
         std::cerr << "[ERROR] Failed to write to /dev/serdev-uart: " << strerror(errno) << "\n";
