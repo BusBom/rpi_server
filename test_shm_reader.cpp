@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <cstring>
 #include <sstream>
+#include "json.hpp"
+
+using json = nlohmann::ordered_json;
 
 class ShmReader {
 private:
@@ -46,21 +49,40 @@ public:
         }
         
         std::string data(static_cast<char*>(shm_ptr_));
-        std::istringstream iss(data);
-        std::string line;
         
-        // Read number of objects
-        if (std::getline(iss, line)) {
-            int count = std::stoi(line);
-            std::cout << "Number of OCR texts: " << count << std::endl;
+        // If data is empty, return empty vector
+        if (data.empty()) {
+            std::cout << "Shared memory is empty" << std::endl;
+            return ocr_texts;
+        }
+        
+        try {
+            // Parse JSON data
+            json plates_json = json::parse(data);
             
-            // Read each OCR text
-            for (int i = 0; i < count; i++) {
-                if (std::getline(iss, line)) {
-                    ocr_texts.push_back(line);
-                    std::cout << "OCR[" << i << "]: " << line << std::endl;
+            if (!plates_json.is_array()) {
+                std::cout << "Invalid JSON format: expected array" << std::endl;
+                return ocr_texts;
+            }
+            
+            std::cout << "Number of plates in JSON: " << plates_json.size() << std::endl;
+            
+            // Extract bus numbers from JSON
+            for (size_t i = 0; i < plates_json.size(); i++) {
+                const auto& plate = plates_json[i];
+                if (plate.contains("busNumber") && plate["busNumber"].is_string()) {
+                    std::string bus_number = plate["busNumber"].get<std::string>();
+                    ocr_texts.push_back(bus_number);
+                    std::cout << "Plate[" << i << "]: " << bus_number << std::endl;
+                } else {
+                    std::cout << "Plate[" << i << "]: Invalid format (missing busNumber)" << std::endl;
                 }
             }
+            
+        } catch (const json::exception& e) {
+            std::cerr << "Failed to parse JSON: " << e.what() << std::endl;
+            std::cout << "Raw data: " << data << std::endl;
+            return ocr_texts;
         }
         
         return ocr_texts;
@@ -74,7 +96,7 @@ public:
 };
 
 int main() {
-    const char* shm_name = "/busbom_approach";
+    const char* shm_name = "/bus_approach";  // Updated to match main.cpp
     size_t shm_size = 4096; // Adjust size as needed
     
     ShmReader reader(shm_name, shm_size);
@@ -84,18 +106,22 @@ int main() {
         return -1;
     }
     
-    std::cout << "Press Enter to read shared memory (Ctrl+C to exit)..." << std::endl;
+    std::cout << "Connected to shared memory: " << shm_name << std::endl;
+    std::cout << "Press Enter to read JSON data from shared memory (Ctrl+C to exit)..." << std::endl;
     
     while (true) {
         std::cin.get(); // Wait for Enter key
         
-        std::cout << "\n--- Reading shared memory ---" << std::endl;
+        std::cout << "\n--- Reading JSON from shared memory ---" << std::endl;
         std::vector<std::string> ocr_texts = reader.readOcrTexts();
         
         if (ocr_texts.empty()) {
-            std::cout << "No OCR data found or shared memory is empty" << std::endl;
+            std::cout << "No license plate data found or shared memory is empty" << std::endl;
         } else {
-            std::cout << "Successfully read " << ocr_texts.size() << " OCR texts" << std::endl;
+            std::cout << "Successfully read " << ocr_texts.size() << " license plates:" << std::endl;
+            for (size_t i = 0; i < ocr_texts.size(); i++) {
+                std::cout << "  " << (i+1) << ". " << ocr_texts[i] << std::endl;
+            }
         }
         std::cout << "--- End of reading ---\n" << std::endl;
     }

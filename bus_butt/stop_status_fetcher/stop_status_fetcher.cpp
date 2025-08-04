@@ -31,6 +31,7 @@ StopStatusData fetchStopStatusFromHTTP(const std::string& url) {
         throw std::runtime_error("Failed to init curl");
     }
 
+    // curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
     curl_easy_setopt(curl, CURLOPT_SSLCERT, "/etc/nginx/ssl/server1.cert.pem");

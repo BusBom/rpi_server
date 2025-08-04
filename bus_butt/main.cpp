@@ -18,8 +18,10 @@
 int main() {
     // --- 1. 초기 설정 ---
     BusStationManager manager;
+
     const std::string stop_status_cgi_url = "https://192.168.219.82/cgi-bin/stop-status.cgi";
     const std::string bus_mapping_cgi_url = "https://localhost/cgi-bin/bus-mapping.cgi";
+
     
     std::map<int, int> pending_assignments; // 정류장 배치 상황 저장용
     bool is_initialized = false;
@@ -213,6 +215,7 @@ int main() {
 
                 printResultToSHM(final_instructions, total_valid_platforms);
                 writeResultToDevice(final_instructions, total_valid_platforms);
+
             }
 
         } catch (const std::runtime_error& e) {
