@@ -186,6 +186,7 @@ int main() {
             std::cout << std::endl;
 
             writeResultToDevice(display_result);
+            printResultToSHM(display_result, fetchedStatus.size());
             
         } catch (const std::runtime_error& e) {
             std::cerr << "[Error] " << e.what() << std::endl;
