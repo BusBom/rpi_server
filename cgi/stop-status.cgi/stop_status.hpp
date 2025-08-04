@@ -14,7 +14,12 @@
  *    1: 플랫폼에 버스 정차 중 (BUS DETECTED)
  */
 struct StopStatus {
-    int platform_status[MAX_PLATFORM_COUNT];  // 플랫폼 상태: -1(미사용), 0(비어있음), 1(정차)
-    char station_id[16];                      // 정류장 고유 ID (예: "S001"), 확장성 고려
-    time_t updated_at;                        // 마지막 상태 갱신 시각 (time(nullptr))
+    int platform_status[MAX_PLATFORM_COUNT];  // 0: empty, 1: stopped
+    char station_id[16];
+    time_t updated_at;
+
+    // --- 추가 필드 ---
+    int current_bus_count;  // 현재 정류장 내 버스 수
+    int entered_bus_count;  // 누적 진입 버스 수
+    int exited_bus_count;   // 누적 진출 버스 수
 };

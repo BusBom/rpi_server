@@ -58,18 +58,19 @@ int main() {
     bool first = true;
     for (int i = 0; i < MAX_PLATFORM_COUNT; ++i) {
         // platform_status가 -1이면 미사용 플랫폼이므로, 그 이전까지만 출력
-        if (status_ptr->platform_status[i] == -1) {
-            break; 
-        }
-        if (!first) {
-            std::cout << ", ";
-        }
+        if (status_ptr->platform_status[i] == -1) break;
+        if (!first) std::cout << ", ";
+        
         std::cout << status_ptr->platform_status[i];
         first = false;
     }
     std::cout << "]," << std::endl;
 
     std::cout << "  \"updated_at\": \"" << time_t_to_string(status_ptr->updated_at) << "\"" << std::endl;
+    std::cout << "  \"current_bus_count\": " << status_ptr->current_bus_count << "," << std::endl;
+    std::cout << "  \"entered_bus_count\": " << status_ptr->entered_bus_count << "," << std::endl;
+    std::cout << "  \"exited_bus_count\": " << status_ptr->exited_bus_count << std::endl;
+
     std::cout << "}" << std::endl;
 
     munmap(ptr, sizeof(StopStatus));
