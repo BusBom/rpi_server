@@ -49,7 +49,7 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
     res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl);
-        throw std::runtime_error("curl_easy_perform() for bus queue failed: " + std::string(curl_easy_strerror(res)));
+        throw std::runtime_error("curl_easy_perform() [BusQueue]failed: " + std::string(curl_easy_strerror(res)));
     }
     curl_easy_cleanup(curl);
 
@@ -69,17 +69,7 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
             // std::cout << "[Debug] Processing item: " << item.dump() << std::endl;
             
             // busNumber가 문자열이므로 stoi를 사용해 int로 변환
-            std::string busNumberStr = item.at("busNumber").get<std::string>();
-            int busNumber = std::stoi(busNumberStr);
-            
-            // std::cout << "[Debug] Bus number string: '" << busNumberStr << "' -> int: " << busNumber << std::endl;
-            queue.push_back(busNumber);
-        }
-        
-        // 디버깅: 최종 큐 내용 출력
-        // std::cout << "[Debug] Final queue contents: ";
-        for (const auto& bus : queue) {
-            std::cout << bus << " ";
+            queue.push_back(std::stoi(item.at("routeID").get<std::string>()));
         }
         std::cout << std::endl;
         
