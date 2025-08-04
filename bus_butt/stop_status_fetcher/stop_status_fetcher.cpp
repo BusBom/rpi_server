@@ -32,6 +32,18 @@ StopStatusData fetchStopStatusFromHTTP(const std::string& url) {
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    curl_easy_setopt(curl, CURLOPT_SSLCERT, "/etc/nginx/ssl/server1.cert.pem");
+    curl_easy_setopt(curl, CURLOPT_SSLKEY, "/etc/nginx/ssl/server1.key.pem");
+    curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/nginx/ssl/ca.cert.pem");
+
+    // curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    // curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);  // 2초 타임아웃 등 필요시
@@ -39,7 +51,7 @@ StopStatusData fetchStopStatusFromHTTP(const std::string& url) {
     res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl);
-        throw std::runtime_error("curl_easy_perform() failed: " + std::string(curl_easy_strerror(res)));
+        throw std::runtime_error("curl_easy_perform() [StopStatus] failed: " + std::string(curl_easy_strerror(res)));
     }
     curl_easy_cleanup(curl);
 

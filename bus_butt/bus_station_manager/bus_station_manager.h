@@ -23,7 +23,7 @@ public:
 
     void setBusOnPlatform(int platform_id, int bus_id);
     void removeBusFromPlatform(int platform_id);
-    const std::map<int, int>& getPlatformBusMap() const;
+    const std::map<int, int> getPlatformBusMap() const;
 
     std::vector<int> getOccupiedPlatforms(int total_platforms) const;
 };

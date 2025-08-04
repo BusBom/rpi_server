@@ -43,7 +43,7 @@ void printResultToSHM(const std::vector<std::pair<int, std::string>>& result, in
     // JSON 객체를 압축된 문자열로 변환
     std::string output_string = final_response.dump();
 
-    std::cout << "\n<<<<< 최종 지시사항 (드라이버 전송) >>>>>\n";
+    std::cout << "\n<<<<< 최종 지시사항 (공유메모리 전송) >>>>>\n";
     std::cout << output_string << "\n";
     std::cout << "-------------------------------------\n";
 
@@ -77,11 +77,17 @@ void printResultToSHM(const std::vector<std::pair<int, std::string>>& result, in
 }
 
 // 매칭 결과를 /dev/serdev-uart 장치로 전송
-void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result) {
+void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result, int total_platforms) {
     // 플랫폼 수는 최대 4개로 고정 (P1~P4)
-    std::vector<std::string> platform_bus(4, "");  // 초기값은 공백
+    // std::vector<std::string> final_state(total_platforms);
+    // for (const auto& [plat, bus_str] : result) {
+    //     if (plat < total_platforms) {
+    //         final_state[plat] = bus_str;
+    //     }
+    // }
 
-    // result에서 platform 번호(P0~P3)에 해당하는 버스 번호 설정
+    //result에서 platform 번호(P0~P3)에 해당하는 버스 번호 설정
+    std::vector<std::string> platform_bus(total_platforms, " "); // 기본값은 공백
     for (const auto& [platform, plate_raw] : result) {
         if (platform >= 0 && platform < 4) {
             std::string plate = plate_raw;
@@ -96,6 +102,9 @@ void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result)
         output += platform_bus[i];
         if (i < 3) output += ":";
     }
+
+    std::cout << "\n<<<<< 최종 지시사항 (디바이스 전송) >>>>>\n";
+    std::cout << output << "\n";
 
     // 디바이스 파일 열기
     int fd = open("/dev/serdev-uart", O_WRONLY);

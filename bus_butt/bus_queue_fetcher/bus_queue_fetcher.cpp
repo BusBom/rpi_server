@@ -32,6 +32,14 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    curl_easy_setopt(curl, CURLOPT_SSLCERT, "/etc/nginx/ssl/server1.cert.pem");
+    curl_easy_setopt(curl, CURLOPT_SSLKEY, "/etc/nginx/ssl/server1.key.pem");
+    curl_easy_setopt(curl, CURLOPT_CAINFO, "/etc/nginx/ssl/ca.cert.pem");
+
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // 인증서 검증 비활성화
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);  // 호스트 검증 비활성화
+
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
@@ -39,7 +47,7 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
     res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl);
-        throw std::runtime_error("curl_easy_perform() for bus queue failed: " + std::string(curl_easy_strerror(res)));
+        throw std::runtime_error("curl_easy_perform() [BusQueue]failed: " + std::string(curl_easy_strerror(res)));
     }
     curl_easy_cleanup(curl);
 
@@ -48,7 +56,7 @@ std::list<int> fetchIncomingBusQueue(const std::string& url) {
         auto j = json::parse(readBuffer);
         for (const auto& item : j) {
             // busNumber가 문자열이므로 stoi를 사용해 int로 변환
-            queue.push_back(std::stoi(item.at("busNumber").get<std::string>()));
+            queue.push_back(std::stoi(item.at("routeID").get<std::string>()));
         }
     } catch (const std::exception& e) {
         std::cerr << "[Error] Failed to parse bus queue JSON: " << e.what() << std::endl;

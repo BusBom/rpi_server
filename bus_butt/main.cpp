@@ -18,15 +18,16 @@
 int main() {
     // --- 1. 초기 설정 ---
     BusStationManager manager;
-    const std::string stop_status_cgi_url = "http://192.168.219.50/cgi-bin/stop-status.cgi";
-    const std::string bus_mapping_cgi_url = "http://localhost/cgi-bin/bus-mapping.cgi";
+    const std::string stop_status_cgi_url = "https://192.168.219.82/cgi-bin/stop-status.cgi";
+    const std::string bus_mapping_cgi_url = "https://localhost/cgi-bin/bus-mapping.cgi";
     
     std::map<int, int> pending_assignments; // 정류장 배치 상황 저장용
     bool is_initialized = false;
     int last_exited_count = 0;
+    int stacked_outgoing = 0;
     
     std::cout << "메인 서버 로직 시작. 0.5초마다 정류장 상태를 확인합니다.\n";
-
+    
     // --- 2. 메인 루프 시작 ---
     while (true) {
         try {
@@ -66,22 +67,42 @@ int main() {
             int departure_count = data.exited_bus_count - last_exited_count;
             if (departure_count > 0) {
                 std::cout << "\n<<<<< 출차 이벤트 감지 (" << departure_count << "대) >>>>>\n";
-                std::vector<int> prev_logical_status = manager.getOccupiedPlatforms(total_valid_platforms);
-                for(int i=0; i < total_valid_platforms; ++i) {
-                    if(prev_logical_status[i] == 1 && data.platform_status[i] == 0) {
-                        manager.removeBusFromPlatform(i);
-                        std::cout << "  - 플랫폼 " << i << "에서 버스 출차 확인.\n";
-                    }
+                stacked_outgoing += departure_count;
+                
+                // 현재 플랫폼-버스 맵에서 앞쪽 플랫폼부터 출차된 개수만큼 제거
+                auto current_bus_map = manager.getPlatformBusMap();
+                std::vector<int> occupied_platforms;
+                for (const auto& [platform, bus_id] : current_bus_map) {
+                    occupied_platforms.push_back(platform);
                 }
+                std::sort(occupied_platforms.begin(), occupied_platforms.end());
+                
+                // 앞쪽 플랫폼부터 departure_count만큼 제거
+                for (int i = 0; i < stacked_outgoing && i < occupied_platforms.size(); ++i) {
+                    int platform_to_remove = occupied_platforms[i];
+                    manager.removeBusFromPlatform(platform_to_remove);
+                    std::cout << "  - [출차 처리] 플랫폼 " << platform_to_remove << "에서 버스 제거\n";
+                }
+                
                 last_exited_count = data.exited_bus_count;
                 needs_display_update = true;
             }
             
-            // 도착 이벤트
-            std::vector<int> prev_logical_status = manager.getOccupiedPlatforms(total_valid_platforms);
+            // 도착 이벤트 (출차 처리 후 최신 상태로 다시 가져오기)
+            std::vector<int> current_logical_status = manager.getOccupiedPlatforms(total_valid_platforms);
+            
+            // 안전성 체크: 벡터 크기가 예상과 다르면 스킵
+            if (current_logical_status.size() != static_cast<size_t>(total_valid_platforms)) {
+                std::cerr << "[Warning] 논리적 상태 벡터 크기 불일치. 예상: " << total_valid_platforms 
+                         << ", 실제: " << current_logical_status.size() << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                continue;
+            }
+            
             for(int i=0; i < total_valid_platforms; ++i) {
                 // 논리적으로는 비어있었는데, 물리적으로 채워진 플랫폼을 찾아 도착 처리
-                if(prev_logical_status[i] == 0 && data.platform_status[i] == 1) {
+                // 단, 물리적으로도 실제 점유된 상태(1)인 경우만 처리
+                if(current_logical_status[i] == 0 && data.platform_status[i] == 1) {
                     needs_display_update = true;
                     int bus_id = -1;
                     int platform_to_confirm = -1;
@@ -89,9 +110,9 @@ int main() {
                     // 부정확한 주차를 고려하여 주변 플랫폼까지 확인
                     if (pending_assignments.count(i)) {
                         platform_to_confirm = i;
-                    } else if (pending_assignments.count(i - 1)) {
+                    } else if (i > 0 && pending_assignments.count(i - 1)) {
                         platform_to_confirm = i - 1;
-                    } else if (pending_assignments.count(i + 1)) {
+                    } else if (i < total_valid_platforms - 1 && pending_assignments.count(i + 1)) {
                         platform_to_confirm = i + 1;
                     }
 
@@ -101,6 +122,7 @@ int main() {
                         pending_assignments.erase(platform_to_confirm);
                         std::cout << "  - [도착 확인] 버스 " << bus_id << "가 플랫폼 " << i << "에 도착했습니다. (원래 지시: " << platform_to_confirm << ")\n";
                     } else {
+                        // 실제 물리적 점유가 확인된 경우에만 미확인 버스로 설정
                         manager.setBusOnPlatform(i, -1);
                         std::cout << "  - [경고] 예상치 못한 미확인 버스가 플랫폼 " << i << "에 도착했습니다.\n";
                     }
@@ -138,13 +160,42 @@ int main() {
             // --- 단계 5: 최종 지시사항 전송 ---
             if (needs_display_update) {
                 std::vector<std::pair<int, std::string>> final_instructions;
+                
+                // 출차/도착 처리 후 최신 상태를 다시 가져오기
                 auto final_bus_map = manager.getPlatformBusMap();
+                
+                // 디버그: 현재 관리 중인 버스 상태 출력
+                std::cout << "[Debug] 현재 관리 중인 버스: ";
+                for(const auto& [plat, bus_id] : final_bus_map) {
+                    std::cout << "P" << plat << ":" << bus_id << " ";
+                }
+                std::cout << std::endl;
                 
                 // 1. 현재 확정된 버스 상태를 추가
                 for(const auto& [plat, bus_id] : final_bus_map) {
-                    final_instructions.push_back({plat, (bus_id == -1 ? "" : std::to_string(bus_id))});
+                    final_instructions.push_back({plat, (bus_id == -1 ? " " : std::to_string(bus_id))});
                 }
+
+                // for (int i = 0; i < total_valid_platforms; ++i) {
+                //     int bus_id = manager.getBusOnPlatform(i);  // -1이면 비어있음
+                //     final_instructions.push_back({i, (bus_id == -1 ? " " : std::to_string(bus_id))});
+                // }
                 
+                // 2. 아직 도착하지 않은 배차 지시(pending)를 덮어쓰거나 추가
+                // for(const auto& [plat, bus_id] : pending_assignments) {
+                //     bool found = false;
+                //     for(auto& final_inst : final_instructions) {
+                //         if (final_inst.first == plat) {
+                //             final_inst.second = std::to_string(bus_id);
+                //             found = true;
+                //             break;
+                //         }
+                //     }
+                //     if (!found) {
+                //         final_instructions.push_back({plat, std::to_string(bus_id)});
+                //     }
+                // }
+
                 // 2. 아직 도착하지 않은 배차 지시(pending)를 덮어쓰거나 추가
                 for(const auto& [plat, bus_id] : pending_assignments) {
                     bool found = false;
@@ -159,9 +210,9 @@ int main() {
                         final_instructions.push_back({plat, std::to_string(bus_id)});
                     }
                 }
-                
+
                 printResultToSHM(final_instructions, total_valid_platforms);
-                writeResultToDevice(final_instructions);
+                writeResultToDevice(final_instructions, total_valid_platforms);
             }
 
         } catch (const std::runtime_error& e) {

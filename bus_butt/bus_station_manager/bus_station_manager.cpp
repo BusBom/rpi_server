@@ -10,7 +10,7 @@ void BusStationManager::removeBusFromPlatform(int platform_id) {
     platform_to_bus_.erase(platform_id);
 }
 
-const std::map<int, int>& BusStationManager::getPlatformBusMap() const {
+const std::map<int, int> BusStationManager::getPlatformBusMap() const {
     return platform_to_bus_;
 }
 

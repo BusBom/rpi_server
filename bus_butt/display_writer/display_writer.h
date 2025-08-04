@@ -16,4 +16,4 @@
 #include <unistd.h>   // For ftruncate, close
 
 void printResultToSHM(const std::vector<std::pair<int, std::string>>& result, int total_platforms);
-void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result);
+void writeResultToDevice(const std::vector<std::pair<int, std::string>>& result, int total_platforms);
