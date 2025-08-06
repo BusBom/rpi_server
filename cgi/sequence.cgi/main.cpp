@@ -61,7 +61,7 @@ int main() {
 
         // Construct the final JSON response
         final_response["parkingPoint"] = 4;         // 플랫폼 개수
-        final_response["online"] = {0, 0, 0};       // 고정
+        final_response["online"] = {1, 1, 1};       // 고정
         final_response["sequence"] = sequence_data; // "sequence":[{"platform": 1, "busNumber": "142"}, ... ]
 
         std::cout << final_response.dump(4) << std::endl;
