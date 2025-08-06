@@ -1,6 +1,9 @@
 # 🚌 Busbom 버스봄 - Main Server
 
-![background](readme_src/background.png)
+<div align="center">
+  <img src="readme_src/background.png" alt="고양이" width="300px" />
+</div>
+
 
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%204-red.svg)]()
 [![Language](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)]()
