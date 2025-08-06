@@ -1,7 +1,7 @@
 # 🚌 Busbom 버스봄 - Main Server
 
 <div align="center">
-  <img src="readme_src/background.png" alt="고양이" width="300px" />
+  <img src="readme_src/background.png" alt="고양이" width="430px" />
 </div>
 
 
