@@ -6,11 +6,12 @@
 </div>
 
 <br/>
+<div align="center">
+  <img src="https://img.shields.io/badge/Platform-Raspberry%20Pi%204-red.svg">
+  <img src="https://img.shields.io/badge/Language-C%2B%2B-blue.svg">
+</div>
 
-[![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%204-red.svg)]()
-[![Language](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)]()
-
-> **Busbom (버스봄)** - BusBom System Server-side Application (Main)
+<br/>
 
 ## 🏗️ Project Overview
 
@@ -67,55 +68,6 @@ rpi_server/
     └── CMakeLists.txt
 ```
 
-## 🏗️ System Architecture
-
-```mermaid
-graph TB
-    subgraph "Input Sources"
-        A[RPi Camera] 
-        B[ONVIF IP Camera]
-        C[Generic RTSP Stream]
-    end
-    
-    subgraph "Processing Layer"
-        D[camera_stream]
-        E[onvif_streamer] 
-        F[rtsp_simple_stream]
-        G[yolo_lp_detector]
-    end
-    
-    subgraph "Core Services"
-        H[Shared Memory]
-        I[bus_butt - Main Server]
-        J[rtsp_server]
-    end
-    
-    subgraph "Web Interface"
-        K[FastCGI Applications]
-        L[Nginx Web Server]
-    end
-    
-    subgraph "Output"
-        M[RTSP Stream]
-        N[Web Dashboard]
-        O[Bus Assignment Display]
-    end
-    
-    A --> D
-    B --> E
-    C --> F
-    D --> H
-    E --> H
-    F --> H
-    G --> H
-    H --> I
-    H --> J
-    I --> K
-    K --> L
-    J --> M
-    L --> N
-    I --> O
-```
 
 ## 🔧 System Requirements
 
